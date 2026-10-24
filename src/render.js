@@ -541,43 +541,170 @@ export class SpaceDust {
 }
 
 // Short-lived flashes and debris attached to a body's view.
+// Impact effects. Each one is a small particle sim in the struck body's frame:
+// ejecta leave the contact point in a ~45° cone tilted downrange, fall back under the body's
+// gravity (or escape, or wrap into a debris ring for giant impacts), and cool from white to red.
+// Size and particle count scale with the collision's kinetic energy.
+const TMP = new THREE.Vector3(), TMP2 = new THREE.Vector3();
+const HOT = [[1, 1, 0.92], [1, 0.82, 0.45], [1, 0.45, 0.12], [0.6, 0.12, 0.04], [0, 0, 0]];
+function heat(T, out, i) {
+  const x = (1 - THREE.MathUtils.clamp(T, 0, 1)) * (HOT.length - 1), k = Math.min(Math.floor(x), HOT.length - 2), f = x - k;
+  for (let c = 0; c < 3; c++) out[i * 3 + c] = HOT[k][c] + (HOT[k + 1][c] - HOT[k][c]) * f;
+}
+function randCone(axis, halfAngle, out) {
+  const cos = 1 - Math.random() * (1 - Math.cos(halfAngle)), sin = Math.sqrt(1 - cos * cos), th = Math.random() * Math.PI * 2;
+  const t1 = TMP.set(1, 0, 0);
+  if (Math.abs(axis.x) > 0.9) t1.set(0, 1, 0);
+  t1.cross(axis).normalize();
+  const t2 = TMP2.copy(axis).cross(t1);
+  return out.copy(axis).multiplyScalar(cos).addScaledVector(t1, sin * Math.cos(th)).addScaledVector(t2, sin * Math.sin(th));
+}
+
 export class Effects {
-  constructor(scene) {
+  constructor(scene, { maxParticles = 600 } = {}) {
     this.scene = scene;
     this.items = [];
+    this.maxParticles = maxParticles;
   }
-  impact(at, color = '#ffd27a', size = 0.2, followId = null) {
-    const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
-    flash.position.copy(at);
-    this.scene.add(flash);
-    const n = 160;
-    const g = new THREE.BufferGeometry();
-    const pos = new Float32Array(n * 3), vel = [];
-    for (let i = 0; i < n; i++) {
-      const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, s = Math.sqrt(1 - u * u), sp = Math.random() ** 0.5;
-      vel.push(new THREE.Vector3(s * Math.cos(th), u, s * Math.sin(th)).multiplyScalar(sp));
+
+  sprite(color, opacity = 1) {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity }));
+    return s;
+  }
+
+  // opts: { at, followId, R (body radius, render units), normal (unit, centre -> contact),
+  //         rel (impactor velocity relative to the target, any units), joules, kind, color }
+  // kind: 'rock' (cratering), 'giant' (comparable masses), 'star', 'blackhole', 'puff'
+  impact(opts) {
+    const { at, followId = null, R, kind = 'rock', color = '#ffd8a0' } = opts;
+    const n = (opts.normal?.lengthSq() > 0 ? opts.normal.clone() : randCone(new THREE.Vector3(0, 1, 0), Math.PI, new THREE.Vector3())).normalize();
+    const relDir = opts.rel?.lengthSq() > 0 ? opts.rel.clone().normalize() : n.clone().negate();
+    // energy -> scale: one step per factor of 1000 in energy (Chicxulub ~ 4e23 J)
+    const lg = Math.log10(Math.max(opts.joules || 1e23, 1e15));
+    const boost = THREE.MathUtils.clamp(1 + (lg - 23) / 6, 0.5, 3.2);
+    const group = new THREE.Group();
+    group.position.copy(at);
+    this.scene.add(group);
+    const contact = n.clone().multiplyScalar(R);
+
+    const count = Math.round(THREE.MathUtils.clamp(70 + (lg - 18) * 28, 50, this.maxParticles) * (kind === 'giant' ? 1.6 : 1));
+    const N = Math.min(count, this.maxParticles);
+    const pos = new Float32Array(N * 3), col = new Float32Array(N * 3), vel = new Float32Array(N * 3), heatT = new Float32Array(N), stuck = new Uint8Array(N);
+    // surface gravity chosen so escape speed = 1.6 R per second of animation
+    const GM = 1.28 * R * R * R;
+    const vEsc = 1.6;
+    const v = new THREE.Vector3(), d = new THREE.Vector3();
+    // downrange: the impactor's motion along the surface carries the curtain forward
+    const along = relDir.clone().projectOnPlane(n);
+    const oblique = Math.min(1, along.length());
+    if (oblique > 1e-3) along.normalize();
+    const spin = n.clone().cross(relDir).normalize();
+    for (let i = 0; i < N; i++) {
+      let speed;
+      if (kind === 'blackhole') {
+        // infalling streamers: start on a ring and spiral in
+        const a = Math.random() * Math.PI * 2, r = R * (3 + Math.random() * 3);
+        d.set(Math.cos(a), (Math.random() - 0.5) * 0.15, Math.sin(a)).multiplyScalar(r);
+        pos.set([d.x, d.y, d.z], i * 3);
+        v.set(-d.z, 0, d.x).normalize().multiplyScalar(Math.sqrt((GM * 4) / r)).addScaledVector(d, -0.35 / r);
+        heatT[i] = 1;
+      } else if (kind === 'giant') {
+        // a splash of the mantle: much of it lands, some wraps into a short-lived debris ring
+        randCone(n, 1.1, d);
+        pos.set([contact.x + d.x * R * 0.2, contact.y + d.y * R * 0.2, contact.z + d.z * R * 0.2], i * 3);
+        speed = vEsc * (0.55 + Math.random() ** 2 * 0.65);
+        v.copy(d).multiplyScalar(speed * R).addScaledVector(TMP.copy(spin).cross(d), speed * R * 0.7);
+        heatT[i] = 0.85 + Math.random() * 0.15;
+      } else {
+        // crater ejecta: 45° curtain, faster material is rarer, oblique hits throw it downrange
+        randCone(n, 0.8, d);
+        d.addScaledVector(along, oblique * 0.8).normalize();
+        speed = vEsc * (kind === 'star' ? 0.25 + Math.random() * 0.5 : 0.2 + Math.random() ** 3 * 1.3 * Math.min(boost, 1.6));
+        pos.set([contact.x, contact.y, contact.z], i * 3);
+        v.copy(d).multiplyScalar(speed * R);
+        heatT[i] = kind === 'puff' ? 0.6 : 0.7 + speed / vEsc * 0.3;
+      }
+      vel.set([v.x, v.y, v.z], i * 3);
+      heat(heatT[i], col, i);
     }
+    const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    const debris = new THREE.Points(g, new THREE.PointsMaterial({ map: glow, color, size: size * 0.25, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
-    debris.position.copy(at);
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    const tint = new THREE.Color(kind === 'blackhole' ? '#bcd8ff' : kind === 'star' || kind === 'puff' ? color : '#ffffff');
+    const debris = new THREE.Points(g, new THREE.PointsMaterial({ map: glow, size: R * 0.22 * Math.sqrt(boost), vertexColors: true, color: tint, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
     debris.frustumCulled = false;
-    this.scene.add(debris);
-    this.items.push({ flash, debris, vel, age: 0, life: 2.2, size, followId });
+    group.add(debris);
+
+    // fireball at the contact point, plus a molten scar that lingers on the surface
+    const flash = this.sprite(kind === 'blackhole' ? '#cfe4ff' : kind === 'star' ? color : '#fff4d8');
+    flash.position.copy(kind === 'blackhole' ? new THREE.Vector3() : contact);
+    group.add(flash);
+    const scar = kind === 'rock' || kind === 'giant' ? this.sprite('#ff6a20', 0.9) : null;
+    if (scar) { scar.position.copy(n).multiplyScalar(R * 1.01); group.add(scar); }
+    // shock front sweeping across the surface
+    let ring = null;
+    if (kind !== 'blackhole' && kind !== 'puff') {
+      ring = new THREE.Mesh(new THREE.RingGeometry(0.82, 1, 48), new THREE.MeshBasicMaterial({ color: kind === 'star' ? color : '#ffd0a0', transparent: true, opacity: 0.7, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
+      ring.position.copy(n).multiplyScalar(R * 1.02);
+      ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+      group.add(ring);
+    }
+    const life = kind === 'giant' ? 9 : kind === 'blackhole' ? 3.5 : kind === 'star' ? 2.6 : 4 + boost;
+    this.items.push({ group, debris, flash, scar, ring, pos, col, vel, heatT, stuck, N, R, GM, kind, boost, age: 0, life, followId });
   }
+
   update(dt, follow) {
+    dt = Math.min(dt, 0.05);
     const p0 = new THREE.Vector3();
     this.items = this.items.filter((it) => {
       it.age += dt;
       const f = it.age / it.life;
-      if (it.followId && follow(it.followId, p0)) { it.flash.position.copy(p0); it.debris.position.copy(p0); }
-      it.flash.scale.setScalar(it.size * (1 + f * 14));
-      it.flash.material.opacity = Math.max(0, 1 - f * 1.4);
-      const p = it.debris.geometry.attributes.position.array;
-      const spread = it.size * 6 * (1 - Math.exp(-it.age * 2));
-      it.vel.forEach((v, i) => { p[i * 3] = v.x * spread; p[i * 3 + 1] = v.y * spread; p[i * 3 + 2] = v.z * spread; });
+      if (it.followId && follow(it.followId, p0)) it.group.position.copy(p0);
+      const { pos, vel, col, heatT, stuck, R, GM } = it;
+      const cool = it.kind === 'blackhole' ? 0 : it.kind === 'giant' ? 0.16 : 0.32;
+      for (let s = 0; s < 2; s++) {
+        const h = dt / 2;
+        for (let i = 0; i < it.N; i++) {
+          if (stuck[i]) continue;
+          const k = i * 3;
+          const x = pos[k], y = pos[k + 1], z = pos[k + 2];
+          const r2 = x * x + y * y + z * z, r = Math.sqrt(r2);
+          const a = (it.kind === 'blackhole' ? GM * 4 : GM) / (r2 * r);
+          vel[k] -= x * a * h; vel[k + 1] -= y * a * h; vel[k + 2] -= z * a * h;
+          if (it.kind === 'blackhole') { const drag = 1 - 0.9 * h; vel[k] *= drag; vel[k + 1] *= drag; vel[k + 2] *= drag; }
+          pos[k] += vel[k] * h; pos[k + 1] += vel[k + 1] * h; pos[k + 2] += vel[k + 2] * h;
+          const nr = Math.hypot(pos[k], pos[k + 1], pos[k + 2]);
+          const floor = it.kind === 'blackhole' ? R * 0.35 : R;
+          // fell back to the surface (or through the horizon): stop there and keep glowing a while
+          if (nr < floor && it.age > 0.05) {
+            const sc = floor / nr; pos[k] *= sc; pos[k + 1] *= sc; pos[k + 2] *= sc;
+            stuck[i] = it.kind === 'blackhole' ? 2 : 1;
+          }
+        }
+      }
+      for (let i = 0; i < it.N; i++) {
+        heatT[i] = stuck[i] ? heatT[i] - dt * cool * 1.6 : Math.max(0.2, heatT[i] - dt * cool);
+        if (stuck[i] === 2) heatT[i] = 0;
+        heat(it.kind === 'blackhole' ? (stuck[i] ? 0 : 1) : heatT[i], col, i);
+      }
       it.debris.geometry.attributes.position.needsUpdate = true;
-      it.debris.material.opacity = Math.max(0, 1 - f);
-      if (f >= 1) { it.flash.removeFromParent(); it.debris.removeFromParent(); it.debris.geometry.dispose(); return false; }
+      it.debris.geometry.attributes.color.needsUpdate = true;
+      it.debris.material.opacity = Math.min(1, (1 - f) * 2.5);
+      // fireball: fast bright pop, then a dimmer expanding glow
+      const fb = it.age < 0.12 ? it.age / 0.12 : Math.exp(-(it.age - 0.12) * 2.2);
+      it.flash.scale.setScalar(R * it.boost * (it.kind === 'blackhole' ? 2.5 : 3) * (0.6 + Math.min(it.age, 1.5) * 1.2));
+      it.flash.material.opacity = fb;
+      if (it.scar) { it.scar.scale.setScalar(R * 0.9 * Math.min(1.6, it.boost)); it.scar.material.opacity = 0.9 * Math.exp(-it.age * 0.45) * Math.min(1, it.age * 4); }
+      if (it.ring) {
+        const rr = R * (0.1 + Math.min(1.4, it.age * 1.4)) * Math.min(it.boost, 1.6);
+        it.ring.scale.setScalar(rr);
+        it.ring.material.opacity = 0.7 * Math.max(0, 1 - it.age / 1.1);
+      }
+      if (f >= 1) {
+        it.group.removeFromParent();
+        it.group.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); });
+        return false;
+      }
       return true;
     });
   }

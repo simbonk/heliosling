@@ -1,4 +1,4 @@
-import { G, PLANETS, SUN, displayRadius } from './data.js';
+import { G, PLANETS, SUN, displayRadius, KMS_PER_AUYR } from './data.js';
 
 const DEG = Math.PI / 180;
 const SOFT2 = 1e-8;
@@ -248,6 +248,10 @@ export class Sim {
     const [big, small] = a.mass >= b.mass ? [a, b] : [b, a];
     const M = big.mass + small.mass;
     const relV = Math.hypot(a.vx - b.vx, a.vy - b.vy, a.vz - b.vz);
+    // where and how the smaller body arrived, for the impact effect
+    const geo = { nx: small.x - big.x, ny: small.y - big.y, nz: small.z - big.z, rvx: small.vx - big.vx, rvy: small.vy - big.vy, rvz: small.vz - big.vz };
+    // kinetic energy of the collision in the centre-of-mass frame, in joules
+    const joules = 0.5 * ((big.mass * small.mass) / (big.mass + small.mass)) * relV * relV * 1.989e30 * (KMS_PER_AUYR * 1000) ** 2;
     for (const k of ['x', 'y', 'z']) {
       big[k] = (big[k] * big.mass + small[k] * small.mass) / M;
       big['v' + k] = (big['v' + k] * big.mass + small['v' + k] * small.mass) / M;
@@ -262,7 +266,7 @@ export class Sim {
     small.alive = false;
     big._dirty = true;
     this.emit({ kind: 'impact', a: big.id, b: small.id, aName: big.name, bName: small.name, bKind: small.kind, aKind: big.kind,
-      ratio, relV, x: big.x, y: big.y, z: big.z, spawnedB: small.spawned, spawnedA: big.spawned });
+      ratio, relV, joules, ...geo, x: big.x, y: big.y, z: big.z, spawnedB: small.spawned, spawnedA: big.spawned });
   }
 
   // Bookkeeping that can produce story events: escapes, captures, new moons, Earth's climate.

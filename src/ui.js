@@ -7,6 +7,36 @@ export function el(tag, cls, html) {
   return e;
 }
 
+// Phones: act on finger lift instead of waiting for the browser's synthesized click. That click
+// gets dropped when the main thread is busy or when the HUD re-renders the button mid-tap,
+// which is what made buttons feel sticky. Whatever button is under the finger at lift wins.
+export function installFastTap() {
+  let down = null, swallowUntil = 0;
+  const target = (e) => e.target.closest?.('button, .chip, [data-tap]');
+  document.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse') return;
+    const b = target(e);
+    down = b ? { id: e.pointerId, x: e.clientX, y: e.clientY, b } : null;
+    b?.classList.add('pressed');
+  }, true);
+  const clear = () => { down?.b.classList.remove('pressed'); down = null; };
+  document.addEventListener('pointercancel', clear, true);
+  document.addEventListener('pointerup', (e) => {
+    if (!down || e.pointerId !== down.id) return;
+    const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
+    clear();
+    if (moved > 14) return; // a scroll or a drag, not a tap
+    const hit = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('button, .chip, [data-tap]');
+    if (!hit || hit.disabled) return;
+    swallowUntil = performance.now() + 600;
+    hit.click();
+  }, true);
+  // the browser's own click for the same tap arrives later; drop it so nothing fires twice
+  document.addEventListener('click', (e) => {
+    if (e.isTrusted && performance.now() < swallowUntil && e.detail > 0) { e.preventDefault(); e.stopPropagation(); swallowUntil = 0; }
+  }, true);
+}
+
 let lastFocus = null;
 export function modal({ title, body, actions = [] }) {
   closeModal();

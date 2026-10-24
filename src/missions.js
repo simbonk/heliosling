@@ -160,14 +160,26 @@ export function achievementsForEvent(ev, sim) {
   return out;
 }
 
+// Collision energy next to something familiar: the Chicxulub impact released about 4e23 J.
+export function energyText(j) {
+  if (!j) return '';
+  const x = j / 4e23;
+  if (x < 0.01) return `${(j / 4.184e15).toPrecision(2)} megatons`;
+  if (x < 1.5) return `${x.toPrecision(1)}× the dinosaur-killer`;
+  const p = Math.floor(Math.log10(x));
+  const words = ['', 'ten', 'hundred', 'thousand', 'ten thousand', 'hundred thousand', 'million', 'ten million', 'hundred million', 'billion'];
+  return p < 1 ? `${x.toFixed(0)}× the dinosaur-killer` : p < words.length ? `~${words[p]}× the dinosaur-killer` : `10^${p}× the dinosaur-killer`;
+}
+
 // Human sentence for the chronicle feed.
 export function describe(ev) {
   switch (ev.kind) {
     case 'spawn': return { icon: '✨', text: `${ev.name} entered the system` };
     case 'impact': {
       const verb = ev.aKind === 'blackhole' ? 'swallowed' : ev.aKind === 'star' ? 'engulfed' : ev.ratio > 0.3 ? 'merged with' : 'was struck by';
-      if (verb === 'was struck by') return { icon: '💥', text: `${ev.aName} was struck by ${ev.bName} at ${(ev.relV * KMS_PER_AUYR).toFixed(0)} km/s` };
-      return { icon: ev.aKind === 'blackhole' ? '🕳️' : '💥', text: `${ev.aName} ${verb} ${ev.bName}` };
+      const e = ev.aKind === 'blackhole' ? '' : ev.joules ? ` (${energyText(ev.joules)})` : '';
+      if (verb === 'was struck by') return { icon: '💥', text: `${ev.aName} was struck by ${ev.bName} at ${(ev.relV * KMS_PER_AUYR).toFixed(0)} km/s${e}` };
+      return { icon: ev.aKind === 'blackhole' ? '🕳️' : '💥', text: `${ev.aName} ${verb} ${ev.bName}${e}` };
     }
     case 'escape': return { icon: '🚀', text: `${ev.name} escaped into interstellar space` };
     case 'capture': return { icon: '🧲', text: `${ev.name} was captured by ${ev.star}` };

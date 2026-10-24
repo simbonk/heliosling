@@ -11,7 +11,7 @@ import { makeLensPass, makeGravityGrid } from './shaders.js';
 import { MISSIONS, ACHIEVEMENTS, achievementsForEvent, describe, starsFor } from './missions.js';
 import { buildSave, downloadJSON, readFile, encodeShare, decodeShare, store } from './save.js';
 import { planetTexture, earthNightTexture } from './textures.js';
-import { $, el, modal, closeModal, sheet, toast, fmtMass, fmtNum } from './ui.js';
+import { $, el, modal, closeModal, sheet, toast, fmtMass, fmtNum, installFastTap } from './ui.js';
 
 const MOBILE = matchMedia('(pointer: coarse)').matches || innerWidth < 760;
 const DRIFT_DIR = new THREE.Vector3(0.5, Math.sqrt(3) / 2, 0); // ~60° to the ecliptic, like the real Sun
@@ -28,10 +28,16 @@ const settings = Object.assign({
   bloom: true,
   labels: true,
   trails: true,
-  grid: false,
-  hz: true,
+  grid: true,
+  hz: false,
   scale: 'visible',
-}, store.get('sss.settings', {}));
+}, migrateSettings(store.get('sss.settings', {})));
+// v2 flipped the defaults: gravity wells on, habitable zone off
+function migrateSettings(saved) {
+  if ((saved.v || 1) < 2) { delete saved.grid; delete saved.hz; }
+  saved.v = 2;
+  return saved;
+}
 const saveSettings = () => store.set('sss.settings', settings);
 
 const S = {
@@ -65,7 +71,7 @@ const trails = new Trails(scene, sim);
 trails.length = settings.trailLength;
 const belt = new Belt(scene);
 const dust = new SpaceDust(scene);
-const effects = new Effects(scene);
+const effects = new Effects(scene, { maxParticles: MOBILE ? 320 : 700 });
 const galaxy = new GalaxyView(scene, { stars: MOBILE ? 30000 : 60000 });
 const grid = makeGravityGrid();
 scene.add(grid);
@@ -351,10 +357,16 @@ sim.on((ev) => {
     if (big) {
       const p = toRender(big, new THREE.Vector3());
       const dist = camera.position.distanceTo(p);
-      const size = Math.max(sim.radius(big) * 1.5, dist * 0.012);
-      effects.impact(p, ev.aKind === 'blackhole' ? '#ffa04a' : '#ffd8a0', size, big.id);
+      const kind = ev.aKind === 'blackhole' ? 'blackhole' : ev.aKind === 'star' ? 'star' : ev.ratio > 0.1 ? 'giant' : 'rock';
+      effects.impact({
+        at: p, followId: big.id, kind, joules: ev.joules,
+        R: Math.max(sim.radius(big), dist * 0.01),
+        normal: new THREE.Vector3(ev.nx, ev.ny, ev.nz),
+        rel: new THREE.Vector3(ev.rvx, ev.rvy, ev.rvz),
+        color: big.color,
+      });
       const near = dist < camera.position.distanceTo(controls.target) * 3;
-      if (near) S.shake = Math.min(1.5, S.shake + 0.6 + ev.ratio);
+      if (near) S.shake = Math.min(1.5, S.shake + 0.4 + Math.max(0, Math.log10(ev.joules || 1) - 22) * 0.12 + ev.ratio);
       audio.thud(Math.min(1, ev.ratio * 5 + 0.3));
     }
     if (S.selected === ev.b) select(ev.a);
@@ -550,7 +562,7 @@ function renderInfo() {
 
 function removeBody(b) {
   const p = toRender(b, new THREE.Vector3());
-  effects.impact(p, '#9fd0ff', Math.max(sim.radius(b) * 2, camera.position.distanceTo(p) * 0.015));
+  effects.impact({ at: p, kind: 'puff', color: '#9fd0ff', joules: 1e20, R: Math.max(sim.radius(b), camera.position.distanceTo(p) * 0.01) });
   audio.thud(0.8);
   b.alive = false;
   sim._accReady = false;
@@ -705,9 +717,11 @@ function renderAimBar() {
     const next = h.mode === 'heading' ? 'Next: speed →' : h.mode === 'speed' ? '🚀 Launch' : '';
     bar.innerHTML = `<div class="wiz-steps">${steps}</div>${body}
       <div class="aim-actions"><button data-a="back">${back}</button>${next ? `<button data-a="next" class="primary">${next}</button>` : ''}</div>`;
-    bar.querySelector('[data-a=back]').onclick = () => aim.back();
+    // a step change swallows taps for a moment so a repeated tap can't skip straight to Launch
+    const guarded = (fn) => () => { const n = performance.now(); if (n - (S.stepAt || 0) < 350) return; S.stepAt = n; fn(); };
+    bar.querySelector('[data-a=back]').onclick = guarded(() => aim.back());
     const nx = bar.querySelector('[data-a=next]');
-    if (nx) nx.onclick = () => aim.next();
+    if (nx) nx.onclick = guarded(() => aim.next());
     const tilt = bar.querySelector('#tilt');
     if (tilt) tilt.oninput = (e) => aim.setElevation(+e.target.value);
     const sp = bar.querySelector('#aim-speed');
@@ -904,11 +918,22 @@ function renderTelemetry() {
   const year = START_YEAR + sim.t;
   const es = earthStatus();
   const dil = S.slow < 0.95 ? '<i class="badge">SLOW-MO</i>' : S.dilated ? '<i class="badge warn">BUSY</i>' : '';
-  box.innerHTML = `
-    <div><span>YEAR</span><b>${year.toFixed(2)}</b>${dil}</div>
-    <div><span>STABILITY</span><b class="${st.cls}">${st.s.toFixed(0)}% ${st.label}</b></div>
-    <button class="earth-pill ${es.cls}" id="earth-pill" aria-label="Earth status, tap to center on Earth"><span class="globe">🌍</span><span><b>Earth</b> ${es.text}</span></button>`;
-  box.querySelector('#earth-pill').onclick = () => { if (sim.get('earth')) centerOn('earth'); };
+  if (!box.querySelector('#earth-pill')) {
+    box.innerHTML = `
+      <div><span>YEAR</span><b class="t-year"></b><i class="t-badge"></i></div>
+      <div><span>STABILITY</span><b class="t-stab"></b></div>
+      <button class="earth-pill" id="earth-pill" aria-label="Earth status, tap to center on Earth"><span class="globe">🌍</span><span><b>Earth</b> <span class="t-earth"></span></span></button>`;
+    box.querySelector('#earth-pill').onclick = () => { if (sim.get('earth')) centerOn('earth'); };
+  }
+  const set = (sel, txt) => { const n = box.querySelector(sel); if (n.textContent !== txt) n.textContent = txt; };
+  set('.t-year', year.toFixed(2));
+  set('.t-stab', `${st.s.toFixed(0)}% ${st.label}`);
+  box.querySelector('.t-stab').className = `t-stab ${st.cls}`;
+  set('.t-earth', es.text);
+  box.querySelector('#earth-pill').className = `earth-pill ${es.cls}`;
+  const badge = box.querySelector('.t-badge');
+  set('.t-badge', dil ? (S.slow < 0.95 ? 'SLOW-MO' : 'BUSY') : '');
+  badge.className = `t-badge ${dil ? (S.slow < 0.95 ? 'badge' : 'badge warn') : ''}`;
   // live status on Earth's label
   const earth = sim.get('earth');
   if (earth) {
@@ -1160,8 +1185,25 @@ function closeCallFactor() {
 let last = performance.now();
 let teleT = 0, infoT = 0, missionT = 0;
 const tmp = new THREE.Vector3();
+// If the phone can't keep up, render at fewer pixels so taps and the HUD stay responsive.
+let frameEma = 16, slowSince = 0;
+function adaptQuality(now, ms) {
+  frameEma += (ms - frameEma) * 0.05;
+  if (frameEma < 30 || renderer.getPixelRatio() <= 1) { slowSince = 0; return; }
+  slowSince ||= now;
+  if (now - slowSince > 2000) {
+    const pr = Math.max(1, renderer.getPixelRatio() - 0.25);
+    renderer.setPixelRatio(pr);
+    composer.setPixelRatio?.(pr);
+    composer.setSize(innerWidth, innerHeight);
+    slowSince = 0;
+    frameEma = 20;
+  }
+}
+
 function frameLoop(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
+  if (document.visibilityState === 'visible' && now - last < 500) adaptQuality(now, now - last);
   last = now;
   let dtSim = 0;
   if (S.view !== 'galaxy') {
@@ -1231,6 +1273,7 @@ function fadeTicker(now) {
 }
 
 // ---------------------------------------------------------------- boot
+installFastTap();
 buildArsenal();
 buildRail();
 updateSound();

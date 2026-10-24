@@ -31,13 +31,14 @@ Import the repo in Vercel. It detects Vite automatically (`vercel.json` pins `np
 
 **Engagement**
 - 7 challenges with 1–3 stars (fewer shots, more stars), including a killer asteroid you must deflect and a red dwarf heist to steal Neptune.
-- The habitable zone is drawn as a green band, and an Earth badge shows its temperature and whether it is still in the zone.
+- An Earth badge shows its temperature and whether it is still in the habitable zone (the zone itself can be drawn as a band from Layers).
 - 15 achievements, an event log, and a live system stability index.
 - Auto slow-mo when a launched object has a close call, camera shake on impacts, procedural WebAudio sound (drone that pitches with time warp, cue ratchet, impact boom).
 
 **Visuals** (all procedural, no image assets)
 - Canvas-generated planet textures, Earth day/night shader with city lights and an atmospheric rim, Saturn's rings, black hole accretion disk plus screen-space gravitational lensing, tidal stretching near black holes, bloom.
-- Layers: habitable zone, contrails, labels, gravity-well "rubber sheet" grid, true scale. Plus a radar mini-map and label decluttering.
+- Layers: gravity-well "rubber sheet" grid (on by default), contrails, labels, habitable zone, true scale. Plus a radar mini-map and label decluttering.
+- Impacts scale with the collision's real kinetic energy: a fireball at the contact point, an ejecta curtain thrown downrange that falls back and glows, a shock front, a temporary debris ring for giant impacts, and infalling streamers for black holes. The event log compares the energy to the dinosaur-killing Chicxulub impact.
 
 ## Answers to the design questions
 
