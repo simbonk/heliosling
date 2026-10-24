@@ -4,30 +4,28 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#02030a" />
-    <meta name="description" content="Play god with the solar system. Real N-body gravity, pool-cue launches from asteroids to black holes, and the Sun's corkscrew ride through the Milky Way." />
-    <meta property="og:title" content="God Mode · Solar System Sandbox" />
-    <meta property="og:description" content="Throw black holes at the solar system. Real gravity, in your browser." />
+    <meta name="description" content="A solar system physics simulator. Real N-body gravity, launch anything from asteroids to black holes, and watch the Sun's corkscrew ride through the Milky Way." />
+    <meta property="og:title" content="Solar System Physics Simulator" />
+    <meta property="og:description" content="Throw a black hole at the solar system. Real gravity, in your browser." />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
-    <title>God Mode · Solar System Sandbox</title>
+    <title>Solar System Physics Simulator</title>
   </head>
   <body>
     <div id="stage"></div>
 
     <header class="topbar">
-      <div class="brand"><span class="logo"></span><span class="brand-text">GOD<b>MODE</b></span></div>
+      <div class="brand"><span class="logo"></span><span class="brand-text">Solar System <b>Physics Simulator</b></span></div>
       <nav class="seg" id="views" aria-label="View">
-        <button data-view="solar" class="on">Solar</button>
-        <button data-view="helix">Helix</button>
+        <button data-view="helix" class="on">Helix</button>
+        <button data-view="solar">Solar</button>
         <button data-view="galaxy">Milky Way</button>
       </nav>
       <div class="top-actions">
-        <button id="btn-missions" class="pill" aria-label="Trick shots">🎯<span>Trick shots</span></button>
-        <button id="btn-trophy" class="icon" aria-label="Achievements">🏆</button>
+        <button id="btn-missions" class="pill" aria-label="Challenges">🎯<span>Challenges</span></button>
         <button id="btn-sound" class="icon" aria-label="Sound">🔇</button>
-        <button id="btn-help" class="icon desktop-only" aria-label="How to play">?</button>
         <button id="btn-menu" class="icon" aria-label="Menu">☰</button>
       </div>
     </header>
@@ -43,9 +41,9 @@
     <footer class="dock">
       <div id="aimbar" class="hud" hidden></div>
       <div class="timebar hud">
-        <button id="btn-rewind" class="tb" aria-label="Rewind to last shot" title="Rewind to last shot (R)"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
         <button id="btn-play" class="tb play" aria-label="Pause"></button>
-        <button id="btn-stop" class="tb" aria-label="Stop and save" title="Stop and save"><svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg></button>
+        <button id="btn-rewind" class="tb labelled" aria-label="Undo last launch" title="Undo last launch (R)"><svg viewBox="0 0 24 24"><path d="M12.5 8c-2.65 0-5.05 1-6.9 2.6L2 7v9h9l-3.62-3.62A7.95 7.95 0 0 1 12.5 10.5c3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/></svg><span>Undo</span></button>
+        <button id="btn-reset" class="tb labelled" aria-label="Reset the solar system" title="Reset"><svg viewBox="0 0 24 24"><path d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg><span>Reset</span></button>
         <input id="speed" type="range" min="0" max="1" step="0.001" aria-label="Simulation speed" />
         <span id="speed-label" class="mono"></span>
       </div>

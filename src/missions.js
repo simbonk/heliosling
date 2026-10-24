@@ -20,7 +20,7 @@ export const MISSIONS = [
   },
   {
     id: 'boil', title: 'Boil the Oceans', level: 'Easy', suggest: 'star', speed: 1,
-    desc: "Push Earth's temperature past 100 °C for half a year. Mwahaha.",
+    desc: "Push Earth's temperature past 100 °C for half a year.",
     tip: 'A second sun parked near Earth does the trick. So does nudging Earth inward.',
     onEvent(ev) { if (ev.kind === 'climate' && ev.what === 'boiled') return 'win'; },
     status: (g) => (g.sim.climate ? `Earth: ${g.sim.climate.T.toFixed(0)} °C` : 'Earth is gone'),
@@ -126,7 +126,7 @@ export const MISSIONS = [
 export function starsFor(shots) { return shots <= 1 ? 3 : shots <= 3 ? 2 : 1; }
 
 export const ACHIEVEMENTS = [
-  { id: 'first_shot', icon: '🎱', title: 'Prime Mover', desc: 'Launch your first object.' },
+  { id: 'first_shot', icon: '🎱', title: 'First Launch', desc: 'Launch your first object.' },
   { id: 'impact', icon: '💥', title: 'Contact', desc: 'Witness a collision.' },
   { id: 'planet_killer', icon: '☠️', title: 'Planet Killer', desc: 'Destroy a planet.' },
   { id: 'horizon', icon: '🕳️', title: 'Event Horizon', desc: 'Watch a black hole eat something.' },
@@ -140,7 +140,7 @@ export const ACHIEVEMENTS = [
   { id: 'speed_demon', icon: '⚡', title: 'Speed Demon', desc: 'Launch faster than 500 km/s.' },
   { id: 'sharer', icon: '🔗', title: 'Show-off', desc: 'Copy a share link.' },
   { id: 'tourist', icon: '🌌', title: 'Galactic Tourist', desc: 'Ride the Milky Way view all the way to today.' },
-  { id: 'all_missions', icon: '👑', title: 'Demiurge', desc: 'Complete every trick shot.' },
+  { id: 'all_missions', icon: '👑', title: 'Completionist', desc: 'Complete every challenge.' },
 ];
 
 // Map simulation events to achievement ids.

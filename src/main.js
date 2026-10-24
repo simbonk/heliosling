@@ -29,13 +29,13 @@ const settings = Object.assign({
   labels: true,
   trails: true,
   grid: false,
-  hz: false,
+  hz: true,
   scale: 'visible',
-}, store.get('gm.settings', {}));
-const saveSettings = () => store.set('gm.settings', settings);
+}, store.get('sss.settings', {}));
+const saveSettings = () => store.set('sss.settings', settings);
 
 const S = {
-  view: 'solar',
+  view: 'solar', // switched to 'helix' at boot
   playing: true,
   speed: 0.25, // sim years per real second
   galaxySpeed: 12, // Myr per real second
@@ -165,6 +165,22 @@ function setCamMode(mode) {
   updateRail();
 }
 
+// One clear way to pick what the camera stays centred on.
+function centerOn(id) {
+  const b = sim.get(id);
+  if (!b) return;
+  S.selected = id;
+  if (id === refId() && frame() === 'helio') { setCamMode('system'); fitDefault(); }
+  else setCamMode('follow');
+  renderInfo();
+  updateRail();
+}
+const centerName = () => {
+  const b = (rig.mode === 'follow' || rig.mode === 'ride') && sim.get(S.selected);
+  return b ? b.name : refBody()?.name || 'Sun';
+};
+const fitDefault = () => fit(false);
+
 // First press frames the inner system out to Jupiter (plus anything you launched); press again for everything.
 function fit(wide = S.fitWide) {
   const c = focusPoint() || controls.target.clone();
@@ -241,7 +257,7 @@ const aim = new Aim({
 });
 
 function startAim(type) {
-  if (S.view === 'galaxy') setView('solar');
+  if (S.view === 'galaxy') setView('helix');
   const spec = SPAWNABLES.find((s) => s.type === type);
   audio.ensure();
   S.wasPlaying = S.playing;
@@ -274,7 +290,7 @@ function launch(spec, st, shot) {
 }
 
 function resetToShot() {
-  if (!S.lastShot) return toast('Nothing to rewind yet. Launch something first.');
+  if (!S.lastShot) return toast('Nothing to undo yet. Launch something first.');
   const { before, missionData, shot, shots } = S.lastShot;
   loadSim(before, { keepMission: true });
   if (S.mission && missionData) S.mission.data = missionData;
@@ -282,18 +298,30 @@ function resetToShot() {
   setPlaying(false);
   S.wasPlaying = true;
   aim.arm(shot);
-  toast('Rewound to your last shot. Nudge it and fire again.');
+  toast('Undone. Same aim is set up: adjust it and launch again.');
 }
 
 // ---------------------------------------------------------------- universe lifecycle
+// Planets start from J2000 elements, then we integrate forward to today so they sit where
+// they really are now, and the contrails already have a few decades of history.
+const J2000 = Date.UTC(2000, 0, 1, 12);
 function freshUniverse() {
-  sim.initSolarSystem({ belt: settings.belt ? (MOBILE ? 500 : 900) : 0 });
-  resetVisuals();
+  views.clear();
+  trails.reset();
+  sim.initSolarSystem({ belt: 0 });
+  sim.sampleDt = 0.01;
+  sim.nextSample = 0;
+  const years = (Date.now() - J2000) / (365.25 * 864e5);
+  sim.advance(years, 1e9);
+  sim.events.length = 0;
+  sim.initBelt(settings.belt ? (MOBILE ? 500 : 900) : 0);
+  rig.lastFocus = null;
   S.lastShot = null;
   S.shots = 0;
   S.selected = null;
   log.clear();
   sim.checkStatus(sim.alive());
+  renderInfo();
 }
 
 function resetVisuals() {
@@ -365,7 +393,6 @@ function unlock(id) {
   store.set('gm.achievements', [...S.achievements]);
   toast(`<span class="ach">${a.icon}</span> <b>${a.title}</b> · ${a.desc}`, 'achievement');
   audio.chime();
-  $('#btn-trophy').dataset.count = S.achievements.size;
 }
 
 // ---------------------------------------------------------------- missions
@@ -386,7 +413,7 @@ function startMission(def) {
   renderMissionHud();
   modal({
     title: `🎯 ${def.title}`,
-    body: `<p>${def.desc}</p><p class="tip">💡 ${def.tip}</p><p class="muted">Fewer shots earn more stars. ⏮ rewinds to your last shot.</p>`,
+    body: `<p>${def.desc}</p><p class="tip">💡 ${def.tip}</p><p class="muted">Fewer launches earn more stars. Undo takes you back to just before your last launch.</p>`,
     actions: [{ label: `Pick ${SPAWNABLES.find((s) => s.type === def.suggest).name}`, primary: true, onClick: () => { closeModal(); startAim(def.suggest); } }, { label: 'Look around first', onClick: closeModal }],
   });
 }
@@ -413,7 +440,7 @@ function missionResult(r) {
     const next = MISSIONS[MISSIONS.indexOf(def) + 1];
     modal({
       title: 'Mission complete',
-      body: `<div class="stars">${'★'.repeat(stars)}<span>${'★'.repeat(3 - stars)}</span></div><p><b>${def.title}</b> in ${m.shots} shot${m.shots === 1 ? '' : 's'}.</p>${stars < 3 ? '<p class="muted">Do it in one shot for three stars.</p>' : ''}`,
+      body: `<div class="stars">${'★'.repeat(stars)}<span>${'★'.repeat(3 - stars)}</span></div><p><b>${def.title}</b> in ${m.shots} launch${m.shots === 1 ? '' : 'es'}.</p>${stars < 3 ? '<p class="muted">Do it in one launch for three stars.</p>' : ''}`,
       actions: [
         ...(next ? [{ label: `Next: ${next.title}`, primary: true, onClick: () => startMission(next) }] : []),
         { label: 'Replay', onClick: () => startMission(def) },
@@ -426,7 +453,7 @@ function missionResult(r) {
       title: 'Mission failed',
       body: `<p>${def.title}: not this time.</p>`,
       actions: [
-        ...(S.lastShot ? [{ label: '⏮ Rewind to last shot', primary: true, onClick: () => { closeModal(); m.done = false; resetToShot(); } }] : []),
+        ...(S.lastShot ? [{ label: 'Undo last launch', primary: true, onClick: () => { closeModal(); m.done = false; resetToShot(); } }] : []),
         { label: 'Restart mission', primary: !S.lastShot, onClick: () => startMission(def) },
         { label: 'Quit to sandbox', onClick: () => { closeModal(); endMission(); } },
       ],
@@ -437,7 +464,7 @@ function missionResult(r) {
 function renderMissionHud() {
   const m = S.mission;
   if (!m) return;
-  $('#mission-hud').innerHTML = `<div class="mh-title">🎯 ${m.def.title}</div><div class="mh-status">${m.def.status?.(game(), m.data) || ''}</div><div class="mh-shots">Shots ${m.shots}</div><button class="mh-quit" aria-label="Quit mission">✕</button>`;
+  $('#mission-hud').innerHTML = `<div class="mh-title">🎯 ${m.def.title}</div><div class="mh-status">${m.def.status?.(game(), m.data) || ''}</div><div class="mh-shots">Launches ${m.shots}</div><button class="mh-quit" aria-label="Quit mission">✕</button>`;
   $('#mission-hud .mh-quit').onclick = () => endMission();
 }
 
@@ -480,7 +507,7 @@ renderer.domElement.addEventListener('pointerup', (e) => {
 renderer.domElement.addEventListener('dblclick', (e) => {
   if (aim.active) return;
   const b = pick(e);
-  if (b) { select(b.id); setCamMode('follow'); }
+  if (b) centerOn(b.id);
 });
 
 function renderInfo() {
@@ -504,39 +531,46 @@ function renderInfo() {
   }
   if (b.moonOf) rows.push(['Moon of', sim.get(b.moonOf)?.name || '?']);
   if (b.id === 'earth' && sim.climate) rows.push(['Surface', earthStatus().html]);
+  const centred = (rig.mode === 'follow' && S.selected === b.id) || (b.id === refId() && rig.mode === 'system');
   box.innerHTML = `
     <div class="info-head"><span class="dot" style="background:${b.kind === 'blackhole' ? '#ff9a4a' : b.color}"></span><div><h3>${b.name}</h3><small>${b.tagline || b.kind}</small></div><button class="x" aria-label="Close">✕</button></div>
+    <button class="details-toggle">${box.classList.contains('open') ? 'Hide details ▴' : 'Details ▾'}</button>
     <dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
     <div class="info-actions">
-      <button data-a="follow" class="${rig.mode === 'follow' ? 'on' : ''}">🎯 Follow</button>
-      <button data-a="ride" class="${rig.mode === 'ride' ? 'on' : ''}">🚀 Ride along</button>
-      <button data-a="smite" class="danger">⚡ Smite</button>
+      <button data-a="center" class="${centred ? 'on' : ''}">◎ ${centred ? 'Centred' : `Center on ${b.name}`}</button>
+      <button data-a="ride" class="${rig.mode === 'ride' ? 'on' : ''}">Ride along</button>
+      <button data-a="remove" class="danger" aria-label="Remove ${b.name}">Remove</button>
     </div>`;
   box.querySelector('.x').onclick = () => select(null);
-  box.querySelector('[data-a=follow]').onclick = () => setCamMode(rig.mode === 'follow' ? 'system' : 'follow');
-  box.querySelector('[data-a=ride]').onclick = () => setCamMode(rig.mode === 'ride' ? 'system' : 'ride');
-  box.querySelector('[data-a=smite]').onclick = () => smite(b);
+  box.querySelector('.details-toggle').onclick = () => { box.classList.toggle('open'); renderInfo(); };
+  box.querySelector('[data-a=center]').onclick = () => centerOn(b.id);
+  box.querySelector('[data-a=ride]').onclick = () => setCamMode(rig.mode === 'ride' ? 'follow' : 'ride');
+  box.querySelector('[data-a=remove]').onclick = () => removeBody(b);
 }
 
-function smite(b) {
+function removeBody(b) {
   const p = toRender(b, new THREE.Vector3());
   effects.impact(p, '#9fd0ff', Math.max(sim.radius(b) * 2, camera.position.distanceTo(p) * 0.015));
   audio.thud(0.8);
   b.alive = false;
   sim._accReady = false;
-  log({ kind: 'smite', t: sim.t, icon: '⚡', text: `${b.name} was smitten from existence` });
-  chronicle[chronicle.length - 1] = { t: sim.t, icon: '⚡', text: `${b.name} was smitten from existence`, at: performance.now() };
+  chronicle.push({ t: sim.t, icon: '✕', text: `${b.name} was removed`, at: performance.now() });
   renderTicker();
   select(null);
 }
 
+// Earth's climate from total starlight: in the habitable zone, too close, or too far.
 function earthStatus() {
   const c = sim.climate;
-  if (!c) return { text: 'Gone', html: '<span class="bad">Gone</span>' };
+  if (!c) return { text: 'Earth is gone', short: 'Gone', html: '<span class="bad">Gone</span>', cls: 'bad', zone: 'gone' };
   const T = c.T;
-  const label = c.state === 'boiled' ? 'Oceans boiled' : c.state === 'frozen' ? 'Snowball' : T > 60 ? 'Scorching' : T > 35 ? 'Hot' : T < -40 ? 'Freezing' : T < 0 ? 'Cold' : 'Habitable';
-  const cls = label === 'Habitable' ? 'good' : label === 'Hot' || label === 'Cold' ? 'warn' : 'bad';
-  return { text: `${T.toFixed(0)}°C · ${label}`, html: `<span class="${cls}">${T.toFixed(0)} °C · ${label}</span>`, cls };
+  const zone = c.S > 1.11 ? 'hot' : c.S < 0.36 ? 'cold' : 'ok';
+  let label;
+  if (c.state === 'boiled') label = 'Oceans boiled';
+  else if (c.state === 'frozen') label = 'Frozen solid';
+  else label = zone === 'ok' ? 'In the habitable zone' : zone === 'hot' ? 'Too close to the Sun' : 'Too far from the Sun';
+  const cls = c.state !== 'ok' ? 'bad' : zone === 'ok' ? 'good' : Math.abs(T - 15) > 60 ? 'bad' : 'warn';
+  return { text: `${T.toFixed(0)}°C · ${label}`, short: `${T.toFixed(0)}°C · ${zone === 'ok' && c.state === 'ok' ? 'Habitable' : label}`, html: `<span class="${cls}">${T.toFixed(0)} °C · ${label}</span>`, cls, zone };
 }
 
 // ---------------------------------------------------------------- view switching
@@ -610,12 +644,12 @@ function updateDock() {
   $('#speed').value = sliderFromSpeed();
   $('#speed-label').textContent = speedText();
   $('#btn-rewind').disabled = !S.lastShot || S.view === 'galaxy';
-  $('#btn-stop').disabled = S.view === 'galaxy';
+  $('#btn-reset').disabled = S.view === 'galaxy';
 }
 
 $('#btn-play').onclick = () => { audio.ensure(); if (aim.active) aim.cancel(); setPlaying(!isPlaying()); };
 $('#btn-rewind').onclick = () => resetToShot();
-$('#btn-stop').onclick = () => stopFlow();
+$('#btn-reset').onclick = () => resetFlow();
 $('#speed').oninput = (e) => {
   const v = speedFromSlider(+e.target.value);
   if (S.view === 'galaxy') S.galaxySpeed = v; else S.speed = v;
@@ -635,53 +669,70 @@ function buildArsenal() {
   }
 }
 
+const STEPS = [['place', 'Place'], ['heading', 'Aim'], ['speed', 'Speed']];
 function renderAimBar() {
   const h = aim.hud();
   const bar = $('#aimbar');
   document.body.classList.toggle('aiming', !!h);
   if (!h) {
     bar.hidden = true;
+    bar.dataset.key = '';
     document.querySelectorAll('.chip').forEach((c) => c.classList.remove('active'));
-    // cancelling an aim resumes time if it was running before
+    // cancelling resumes time if it was running before
     if (S.wasPlaying && !S.playing && !S.mission?.done) setPlaying(true);
     S.wasPlaying = false;
     return;
   }
   bar.hidden = false;
   const s = h.spec;
-  let msg;
-  if (h.mode === 'place') msg = `<b>${s.icon} ${s.name}</b> Tap empty space to place it`;
-  else if (h.mode === 'placed') msg = `<b>${s.icon} ${s.name}</b> Drag back from it to aim · tap it to drop into orbit`;
-  else msg = `<b class="mono">${h.speed.toFixed(1)} km/s</b> rel. ${h.host} · tilt ${h.elev.toFixed(0)}°${h.hit ? ` · <span class="bad">hits ${h.hit}</span>` : ''}`;
-  const armed = h.mode === 'armed' || h.mode === 'drag';
-  bar.innerHTML = `
-    <div class="aim-msg">${msg}</div>
-    ${armed ? `<div class="aim-ctrls">
-      <button data-n="turn:3" aria-label="Rotate left">⟲</button><button data-n="turn:-3" aria-label="Rotate right">⟳</button>
-      <button data-n="speed:-0.05" aria-label="Less power">−</button><button data-n="speed:0.05" aria-label="More power">+</button>
-      <label class="tilt">Tilt <input type="range" min="-80" max="80" step="1" value="${h.elev.toFixed(0)}" id="tilt"></label>
-    </div>` : ''}
-    <div class="aim-actions">
-      ${h.mode === 'placed' ? '<button data-a="orbit">◎ Orbit</button>' : ''}
-      ${armed ? '<button data-a="fire" class="primary">Fire</button>' : ''}
-      <button data-a="cancel">Cancel</button>
-    </div>`;
-  bar.querySelectorAll('[data-n]').forEach((b) => {
-    b.onclick = () => { const [k, v] = b.dataset.n.split(':'); aim.nudge(k, +v); };
-  });
+  const key = h.mode + s.type;
+  if (bar.dataset.key !== key) {
+    bar.dataset.key = key;
+    const idx = STEPS.findIndex(([m]) => m === h.mode);
+    const steps = STEPS.map(([, name], i) => `<span class="${i < idx ? 'done' : i === idx ? 'on' : ''}"><i>${i < idx ? '✓' : i + 1}</i>${name}</span>`).join('');
+    let body = '';
+    if (h.mode === 'place') body = `<div class="aim-msg"><b>${s.icon} ${s.name}</b> Tap anywhere in space to place it.</div>`;
+    if (h.mode === 'heading') body = `
+      <div class="aim-msg">Drag the <b>ring</b> to point it. Drag its <b>centre</b> to move it, or tap somewhere else.</div>
+      <label class="tilt">Tilt <input type="range" min="-80" max="80" step="1" id="tilt" aria-label="Tilt above or below the planets' plane"><output id="tilt-val"></output></label>
+      <div class="aim-live"></div>`;
+    if (h.mode === 'speed') body = `
+      <div class="speed-row"><input type="range" min="0" max="1" step="0.001" id="aim-speed" aria-label="Launch speed"><div class="aim-live"></div></div>
+      <div class="presets">
+        <button data-p="orbit">Circular orbit</button><button data-p="escape">Escape speed</button><button data-p="drop">Stop dead</button>
+      </div>`;
+    const back = h.mode === 'place' ? 'Cancel' : 'Back';
+    const next = h.mode === 'heading' ? 'Next: speed →' : h.mode === 'speed' ? '🚀 Launch' : '';
+    bar.innerHTML = `<div class="wiz-steps">${steps}</div>${body}
+      <div class="aim-actions"><button data-a="back">${back}</button>${next ? `<button data-a="next" class="primary">${next}</button>` : ''}</div>`;
+    bar.querySelector('[data-a=back]').onclick = () => aim.back();
+    const nx = bar.querySelector('[data-a=next]');
+    if (nx) nx.onclick = () => aim.next();
+    const tilt = bar.querySelector('#tilt');
+    if (tilt) tilt.oninput = (e) => aim.setElevation(+e.target.value);
+    const sp = bar.querySelector('#aim-speed');
+    if (sp) sp.oninput = (e) => aim.setSpeed(Aim.toSpeed(+e.target.value));
+    bar.querySelectorAll('[data-p]').forEach((b) => { b.onclick = () => aim.presetSpeed(b.dataset.p); });
+  }
+  // live values, without rebuilding controls under the user's finger
   const tilt = bar.querySelector('#tilt');
-  if (tilt) tilt.oninput = (e) => aim.setElevation(+e.target.value);
-  bar.querySelector('[data-a=cancel]').onclick = () => aim.cancel();
-  const orbit = bar.querySelector('[data-a=orbit]');
-  if (orbit) orbit.onclick = () => aim.orbitDrop();
-  const fire = bar.querySelector('[data-a=fire]');
-  if (fire) fire.onclick = () => aim.fire();
+  if (tilt && document.activeElement !== tilt) tilt.value = h.elev.toFixed(0);
+  const tv = bar.querySelector('#tilt-val');
+  if (tv) tv.textContent = `${h.elev.toFixed(0)}°`;
+  const sp = bar.querySelector('#aim-speed');
+  if (sp && document.activeElement !== sp) sp.value = Aim.fromSpeed(h.speed);
+  const live = bar.querySelector('.aim-live');
+  if (live) {
+    const hit = h.hit ? `<span class="bad">⚠ Hits ${h.hit} in ${h.hitIn < 1 ? `${(h.hitIn * 12).toFixed(1)} months` : `${h.hitIn.toFixed(1)} yr`}</span>` : '<span class="muted">No impact predicted</span>';
+    live.innerHTML = h.mode === 'speed'
+      ? `<b class="mono">${h.speed.toFixed(1)} km/s</b> <span class="muted">relative to ${h.host}</span><br>${hit}`
+      : `${hit}`;
+  }
 }
-// keep the aim bar from re-rendering under the user's finger while sliding
+
 let aimBarPending = false;
 const _renderAimBar = renderAimBar;
 function throttledAimBar() {
-  if (document.activeElement?.id === 'tilt') return;
   if (aimBarPending) return;
   aimBarPending = true;
   requestAnimationFrame(() => { aimBarPending = false; _renderAimBar(); });
@@ -690,23 +741,16 @@ aim.app.onAimChange = throttledAimBar;
 
 // ---------------------------------------------------------------- right rail
 const RAIL = [
-  { id: 'system', icon: '☉', label: 'Centre on system', act: () => setCamMode('system'), on: () => rig.mode === 'system' },
-  { id: 'top', icon: '⊤', label: 'Top-down view', act: () => setCamMode('top'), on: () => rig.mode === 'top' },
-  { id: 'fit', icon: '⤢', label: 'Fit (press again for the whole system)', act: () => fit() },
-  { sep: true },
-  { id: 'labels', icon: 'Aa', label: 'Labels', act: () => toggle('labels'), on: () => settings.labels },
-  { id: 'trails', icon: '〰', label: 'Contrails', act: () => toggle('trails'), on: () => settings.trails },
-  { id: 'grid', icon: '▦', label: 'Gravity wells (G)', act: () => toggle('grid'), on: () => settings.grid },
-  { id: 'hz', icon: '◎', label: 'Habitable zone (H)', act: () => toggle('hz'), on: () => settings.hz },
-  { id: 'scale', icon: '1:1', label: 'True scale', act: () => toggle('scale'), on: () => settings.scale === 'real' },
+  { id: 'center', pill: true, label: 'Center the view on…', act: () => openCenterPicker() },
+  { id: 'fit', icon: '⤢', label: 'Fit view (press again for the whole system)', act: () => fit() },
+  { id: 'layers', icon: '◫', label: 'Layers', act: () => openLayers() },
 ];
 
 function buildRail() {
   const box = $('#rail');
   box.innerHTML = '';
   for (const r of RAIL) {
-    if (r.sep) { box.appendChild(el('div', 'sep')); continue; }
-    const b = el('button', 'rail-btn', `<span>${r.icon}</span><em>${r.label}</em>`);
+    const b = el('button', r.pill ? 'rail-btn rail-pill' : 'rail-btn', r.pill ? '<span class="cn"></span>' : `<span>${r.icon}</span><em>${r.label}</em>`);
     b.dataset.id = r.id;
     b.setAttribute('aria-label', r.label);
     b.onclick = () => { audio.click(1); r.act(); updateRail(); };
@@ -714,11 +758,38 @@ function buildRail() {
   }
   updateRail();
 }
+
 function updateRail() {
-  for (const r of RAIL) {
-    if (r.sep) continue;
-    $(`#rail [data-id=${r.id}]`)?.classList.toggle('on', !!r.on?.());
-  }
+  const c = $('#rail [data-id=center] .cn');
+  if (c) c.innerHTML = `<small>${rig.mode === 'ride' ? 'Riding' : 'Centred on'}</small>◎ ${centerName()} ▾`;
+}
+
+function openCenterPicker() {
+  const bodies = sim.bodies.filter((b) => b.alive);
+  const cur = (rig.mode === 'follow' || rig.mode === 'ride') ? S.selected : refId();
+  sheet('Center the view on…', `
+    <div class="pick-list">${bodies.map((b) => `<button data-id="${b.id}" class="${b.id === cur ? 'on' : ''}"><span class="dot" style="background:${b.kind === 'blackhole' ? '#ff9a4a' : b.color}"></span><b>${b.name}</b><small>${b.spawned ? 'launched' : b.id === 'pluto' ? 'dwarf planet' : b.kind}</small></button>`).join('')}</div>
+    <h4>Camera angle</h4>
+    <div class="seg-row"><button data-cam="tilt">Tilted</button><button data-cam="top">Top-down</button><button data-cam="ride">Ride along</button></div>
+    <p class="muted small">Tip: tap any planet, then “Center on”. Double-tap also centres.</p>`, (box) => {
+    box.querySelectorAll('[data-id]').forEach((b) => { b.onclick = () => { closeModal(); centerOn(b.dataset.id); }; });
+    box.querySelector('[data-cam=tilt]').onclick = () => { closeModal(); const d = camera.position.distanceTo(controls.target); rig.offsetGoal = new THREE.Vector3(-0.6, 0.35, 0.72).normalize().multiplyScalar(d); };
+    box.querySelector('[data-cam=top]').onclick = () => { closeModal(); const d = camera.position.distanceTo(controls.target); rig.offsetGoal = new THREE.Vector3(0, d, d * 0.0001); };
+    box.querySelector('[data-cam=ride]').onclick = () => { closeModal(); setCamMode('ride'); };
+  });
+}
+
+function openLayers() {
+  const rows = [
+    ['hz', 'Habitable zone', 'Green band where liquid water can exist'],
+    ['trails', 'Contrails', 'Paths each body has travelled'],
+    ['labels', 'Labels', 'Names and live status'],
+    ['grid', 'Gravity wells', 'Spacetime sheet: deeper funnel, stronger pull'],
+    ['scale', 'True scale (1:1)', 'Real sizes: planets become specks'],
+  ];
+  sheet('Layers', rows.map(([k, t, d]) => `<label class="row check layer"><input type="checkbox" data-k="${k}" ${(k === 'scale' ? settings.scale === 'real' : settings[k]) ? 'checked' : ''}><span><b>${t}</b><small>${d}</small></span></label>`).join(''), (box) => {
+    box.querySelectorAll('[data-k]').forEach((c) => { c.onchange = () => toggle(c.dataset.k); });
+  });
 }
 
 function toggle(k) {
@@ -727,8 +798,6 @@ function toggle(k) {
     sim.scaleMode = settings.scale;
     toast(settings.scale === 'real' ? 'True scale: planets are specks. Markers show where they are. Collisions get much harder!' : 'Visible scale: sizes exaggerated so you can see them. Distances and masses stay real.');
   } else settings[k] = !settings[k];
-  if (k === 'grid' && settings.grid) toast('Gravity wells: the deeper the funnel, the stronger the pull.');
-  if (k === 'hz' && settings.hz) toast('Green band: where liquid water can exist.');
   views.showLabels = settings.labels;
   trails.visible = settings.trails;
   saveSettings();
@@ -736,6 +805,23 @@ function toggle(k) {
 }
 
 // ---------------------------------------------------------------- habitable zone rings
+function hzTexture() {
+  const cv = document.createElement('canvas');
+  cv.width = 256; cv.height = 4;
+  const ctx = cv.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, 256, 0);
+  g.addColorStop(0, 'rgba(80,230,140,0.55)');
+  g.addColorStop(0.04, 'rgba(80,230,140,0.12)');
+  g.addColorStop(0.5, 'rgba(80,230,140,0.17)');
+  g.addColorStop(0.96, 'rgba(80,230,140,0.12)');
+  g.addColorStop(1, 'rgba(80,230,140,0.55)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 256, 4);
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const HZ_TEX = hzTexture();
 function updateHZ() {
   const want = new Set();
   if (settings.hz && S.view !== 'galaxy') {
@@ -744,16 +830,26 @@ function updateHZ() {
       want.add(s.id);
       let m = hzGroup.getObjectByName(s.id);
       if (!m) {
-        const L = Math.sqrt(s.luminosity);
-        m = new THREE.Mesh(new THREE.RingGeometry(0.95 * L, 1.67 * L, 128), new THREE.MeshBasicMaterial({ color: 0x3fdc7a, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false }));
+        const L = Math.sqrt(s.luminosity), r0 = 0.95 * L, r1 = 1.67 * L;
+        const geo = new THREE.RingGeometry(r0, r1, 160, 1);
+        const pos = geo.attributes.position, uv = geo.attributes.uv, v = new THREE.Vector3();
+        for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i); uv.setXY(i, (v.length() - r0) / (r1 - r0), 0.5); }
+        m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: HZ_TEX, transparent: true, side: THREE.DoubleSide, depthWrite: false }));
         m.rotation.x = -Math.PI / 2;
         m.name = s.id;
+        const el2 = el('div', 'label hz-label', '<b>Habitable zone</b><small>liquid water possible</small>');
+        const lab = new CSS2DObject(el2);
+        lab.position.set(0, -r1, 0); // ring is rotated, so local -y is "in front"
+        lab.center.set(0.5, 0);
+        m.add(lab);
         hzGroup.add(m);
       }
       toRender(s, m.position);
     }
   }
-  for (const c of [...hzGroup.children]) if (!want.has(c.name)) { c.removeFromParent(); c.geometry.dispose(); }
+  for (const c of [...hzGroup.children]) {
+    if (!want.has(c.name)) { c.traverse((o) => { if (o.isCSS2DObject) o.element.remove(); }); c.removeFromParent(); c.geometry.dispose(); }
+  }
 }
 
 // ---------------------------------------------------------------- radar
@@ -807,36 +903,40 @@ function renderTelemetry() {
   const st = stabilityInfo();
   const year = START_YEAR + sim.t;
   const es = earthStatus();
-  const dil = S.slow < 0.95 ? '<i class="badge">SLOW-MO</i>' : S.dilated ? '<i class="badge warn">TIME DILATED</i>' : '';
+  const dil = S.slow < 0.95 ? '<i class="badge">SLOW-MO</i>' : S.dilated ? '<i class="badge warn">BUSY</i>' : '';
   box.innerHTML = `
     <div><span>YEAR</span><b>${year.toFixed(2)}</b>${dil}</div>
-    <div><span>STABILITY</span><b class="${st.cls}">${st.s.toFixed(1)}% ${st.label}</b></div>
-    <div><span>EARTH</span><b class="${es.cls || 'bad'}">${es.text}</b></div>`;
-  // live ticker on Earth's label
+    <div><span>STABILITY</span><b class="${st.cls}">${st.s.toFixed(0)}% ${st.label}</b></div>
+    <button class="earth-pill ${es.cls}" id="earth-pill" aria-label="Earth status, tap to center on Earth"><span class="globe">🌍</span><span><b>Earth</b> ${es.text}</span></button>`;
+  box.querySelector('#earth-pill').onclick = () => { if (sim.get('earth')) centerOn('earth'); };
+  // live status on Earth's label
   const earth = sim.get('earth');
   if (earth) {
-    const tag = sim.climate ? es.text : 'You are here';
-    if (earth.tagline !== tag) { earth.tagline = tag; earth._dirty = true; }
+    if (earth.tagline !== es.short) { earth.tagline = es.short; earth._dirty = true; }
+    if (S.lastZone && S.lastZone !== es.zone && sim.t > 0) toast(es.zone === 'ok' ? '🌍 Earth is back in the habitable zone' : `🌍 Earth has left the habitable zone: ${es.text}`);
+    S.lastZone = es.zone;
   }
 }
 
 // ---------------------------------------------------------------- stop / save / load / share
-function stopFlow() {
+// Reset: offer to save first (saves are small JSON snapshots), then start a fresh solar system.
+function resetFlow() {
   const wasPlaying = S.playing;
   setPlaying(false);
   aim.cancel();
   const save = buildSave(sim, { view: S.view, speed: S.speed, frame: settings.frame, drift: settings.drift });
   const kb = (JSON.stringify(save).length / 1024).toFixed(0);
-  const spawned = sim.bodies.filter((b) => b.spawned).length;
+  const changed = sim.bodies.some((b) => b.spawned) || chronicle.length > 0;
+  const fresh = () => { closeModal(); endMission(true); freshUniverse(); fitDefault(); setPlaying(true); };
+  if (!changed) { fresh(); toast('Reset to today\'s solar system.'); return; }
   modal({
-    title: 'Save this universe?',
-    body: `<p>${sim.t.toFixed(1)} years simulated · ${S.shots} shot${S.shots === 1 ? '' : 's'} · ${spawned} object${spawned === 1 ? '' : 's'} added · ${chronicle.length} events</p>
-           <p class="muted">Saves store positions and velocities, not video, so this file is only about ${kb} KB. Load it later from the menu or by dropping it on the page.</p>`,
+    title: 'Reset the solar system?',
+    body: `<p>You'll lose this run: ${S.shots} launch${S.shots === 1 ? '' : 'es'} and ${chronicle.length} event${chronicle.length === 1 ? '' : 's'}. Want to save it first?</p>
+           <p class="muted small">A save stores positions and velocities, not video, so it's only about ${kb} KB. Load it later from the menu.</p>`,
     actions: [
-      { label: '⬇ Save .json & start fresh', primary: true, onClick: () => { downloadJSON(save, `universe-${Math.round(START_YEAR + sim.t)}-${Date.now().toString(36)}.json`); closeModal(); endMission(true); freshUniverse(); fit(); toast('Saved. A fresh solar system awaits.'); } },
-      { label: '🔗 Copy share link', onClick: () => share(save) },
-      { label: 'Discard & start fresh', onClick: () => { closeModal(); endMission(true); freshUniverse(); fit(); } },
-      { label: 'Keep playing', onClick: () => { closeModal(); setPlaying(wasPlaying); } },
+      { label: 'Save, then reset', primary: true, onClick: () => { downloadJSON(save, `solar-system-${Math.round(START_YEAR + sim.t)}-${Date.now().toString(36)}.json`); fresh(); toast('Saved. Back to today\'s solar system.'); } },
+      { label: 'Reset without saving', onClick: fresh },
+      { label: 'Cancel', onClick: () => { closeModal(); setPlaying(wasPlaying); } },
     ],
   });
 }
@@ -846,7 +946,7 @@ async function share(save = buildSave(sim, { view: S.view, speed: S.speed, frame
   const url = `${location.origin}${location.pathname}#u=${code}`;
   try { await navigator.clipboard.writeText(url); toast('Share link copied. Anyone who opens it gets this exact universe.'); }
   catch { prompt('Copy this link:', url); }
-  if (navigator.share && MOBILE) navigator.share({ title: 'My universe in God Mode', url }).catch(() => {});
+  if (navigator.share && MOBILE) navigator.share({ title: 'My solar system experiment', url }).catch(() => {});
   unlock('sharer');
 }
 
@@ -880,13 +980,13 @@ window.addEventListener('drop', async (e) => {
 });
 
 setInterval(() => {
-  if (S.view === 'galaxy' || sim.t < 0.05 || S.mission) return;
+  if (S.view === 'galaxy' || S.mission || !sim.bodies.some((b) => b.spawned)) return;
   store.set('gm.autosave', buildSave(sim, { view: S.view, speed: S.speed, frame: settings.frame, drift: settings.drift }));
 }, 15000);
 
 // ---------------------------------------------------------------- menus
 function openMissions() {
-  sheet('Trick shots', MISSIONS.map((m) => {
+  sheet('Challenges', MISSIONS.map((m) => {
     const st = S.missionStars[m.id] || 0;
     return `<button class="mission" data-id="${m.id}"><div><b>${m.title}</b><small class="lvl lvl-${m.level.toLowerCase()}">${m.level}</small></div><p>${m.desc}</p><div class="stars small">${'★'.repeat(st)}<span>${'★'.repeat(3 - st)}</span></div></button>`;
   }).join(''), (box) => {
@@ -904,11 +1004,12 @@ function openMenu() {
       <button data-m="save">⬇ Save .json</button>
       <button data-m="load">⬆ Load .json</button>
       <button data-m="share">🔗 Copy share link</button>
-      <button data-m="new">✦ New solar system</button>
-      <button data-m="log">📜 Chronicle</button>
-      <button data-m="help">❔ How to play</button>
+      <button data-m="new">↺ Reset</button>
+      <button data-m="log">📜 Event log</button>
+      <button data-m="ach">🏆 Achievements · ${S.achievements.size}/${ACHIEVEMENTS.length}</button>
+      <button data-m="help">❔ How it works</button>
     </div>
-    <h4>Settings</h4>
+    <h4>Advanced settings</h4>
     <label class="row">Solar view frame
       <select id="set-frame"><option value="helio">Sun-centred</option><option value="bary">Inertial (barycentre)</option></select></label>
     <label class="row">Helix drift speed <span id="drift-val"></span>
@@ -922,9 +1023,10 @@ function openMenu() {
     box.querySelector('[data-m=save]').onclick = () => { downloadJSON(buildSave(sim, { view: S.view, speed: S.speed, frame: settings.frame, drift: settings.drift }), `universe-${Math.round(START_YEAR + sim.t)}.json`); toast('Saved.'); };
     box.querySelector('[data-m=load]').onclick = loadFromFile;
     box.querySelector('[data-m=share]').onclick = () => share();
-    box.querySelector('[data-m=new]').onclick = () => { closeModal(); stopFlow(); };
+    box.querySelector('[data-m=new]').onclick = () => { closeModal(); resetFlow(); };
     box.querySelector('[data-m=log]').onclick = openChronicle;
     box.querySelector('[data-m=help]').onclick = openHelp;
+    box.querySelector('[data-m=ach]').onclick = openTrophies;
     const fr = box.querySelector('#set-frame');
     fr.value = settings.frame;
     fr.onchange = () => { settings.frame = fr.value; saveSettings(); rig.lastFocus = null; };
@@ -945,60 +1047,59 @@ function openMenu() {
 }
 
 function openChronicle() {
-  sheet('Chronicle', chronicle.length ? `<div class="chronicle">${[...chronicle].reverse().map((c) => `<div><span class="ts">${stamp(c.t)}</span> ${c.icon} ${c.text}</div>`).join('')}</div>` : '<p class="muted">Nothing has happened yet. Throw something!</p>');
+  sheet('Event log', chronicle.length ? `<div class="chronicle">${[...chronicle].reverse().map((c) => `<div><span class="ts">${stamp(c.t)}</span> ${c.icon} ${c.text}</div>`).join('')}</div>` : '<p class="muted">Nothing has happened yet. Launch something!</p>');
 }
 
 function openHelp() {
   modal({
-    title: 'How to play god',
+    title: 'How it works',
     body: `
+      <h4>Launch something</h4>
       <ol class="howto">
-        <li><b>Pick</b> something from the arsenal at the bottom.</li>
-        <li><b>Tap</b> empty space to place it.</li>
-        <li><b>Drag back</b> from it like a pool cue and let go to shoot. The dotted line shows where it will go. Tap it instead to drop it into a circular orbit.</li>
-        <li><b>⏮ Rewind</b> puts you back before your last shot with the aim intact, so you can nudge and retry.</li>
+        <li><b>Pick</b> an object from the bar at the bottom.</li>
+        <li><b>Place</b> it: tap exactly where it should start.</li>
+        <li><b>Aim</b>: drag the ring around it to point it. The dotted line shows where it will go.</li>
+        <li><b>Speed</b>: use the slider or a preset, then Launch. <b>Undo</b> takes you back to the moment before, with the same aim.</li>
       </ol>
-      <h4>Moving around</h4>
-      <p>${MOBILE ? 'One finger orbits, pinch zooms, two fingers pan. Tap a planet for details, double-tap to follow it.' : 'Drag to orbit, scroll to zoom, right-drag to pan. Click a planet for details, double-click to follow it.'}</p>
+      <h4>Look around</h4>
+      <p>${MOBILE ? 'One finger orbits, pinch zooms, two fingers pan.' : 'Drag to orbit, scroll to zoom, right-drag to pan.'} Use <b>Centred on ▾</b> (right side) to follow Earth or anything else. Tapping a planet also offers “Center on”.</p>
       <h4>Views</h4>
-      <p><b>Solar</b> keeps the Sun still. <b>Helix</b> shows the solar system flying through the galaxy, so orbits become corkscrews. <b>Milky Way</b> zooms out to the Sun's 230-million-year lap around the galaxy.</p>
+      <p><b>Helix</b>: the solar system flies through the galaxy, so orbits trace corkscrews. <b>Solar</b>: the Sun stays still and orbits are ellipses. <b>Milky Way</b>: the Sun's 230-million-year lap around the galaxy.</p>
+      <h4>Earth</h4>
+      <p>The green band is the habitable zone. The Earth badge at the top left shows its temperature and whether it is still in the zone.</p>
       ${MOBILE ? '' : `<h4>Keyboard</h4>
       <div class="keys">
-        <span><kbd>Space</kbd> play / pause</span><span><kbd>[</kbd> <kbd>]</kbd> speed</span><span><kbd>R</kbd> rewind shot</span>
-        <span><kbd>F</kbd> fit</span><span><kbd>T</kbd> top-down</span><span><kbd>C</kbd> centre</span>
-        <span><kbd>G</kbd> gravity wells</span><span><kbd>H</kbd> habitable zone</span><span><kbd>L</kbd> labels</span>
-        <span><kbd>0</kbd>–<kbd>9</kbd> Sun & planets</span><span><kbd>V</kbd> next view</span><span><kbd>M</kbd> mute</span>
-        <span><kbd>Shift</kbd>+drag tilt shot</span><span><kbd>←</kbd> <kbd>→</kbd> nudge aim</span><span><kbd>↑</kbd> <kbd>↓</kbd> power</span>
+        <span><kbd>Space</kbd> play / pause</span><span><kbd>[</kbd> <kbd>]</kbd> speed</span><span><kbd>R</kbd> undo launch</span>
+        <span><kbd>F</kbd> fit</span><span><kbd>0</kbd>–<kbd>9</kbd> center on Sun / planets</span><span><kbd>V</kbd> next view</span>
+        <span><kbd>H</kbd> habitable zone</span><span><kbd>G</kbd> gravity wells</span><span><kbd>L</kbd> labels</span>
+        <span><kbd>←</kbd> <kbd>→</kbd> turn aim</span><span><kbd>↑</kbd> <kbd>↓</kbd> speed</span><span><kbd>Enter</kbd> next / launch</span>
       </div>`}
-      <p class="muted small">Physics: real masses and J2000 orbits, N-body gravity with an adaptive leapfrog integrator. In visible scale, sizes are exaggerated (and collisions use the visible size); distances and masses are real.</p>`,
+      <p class="muted small">Physics: real masses, planets placed at today's positions from JPL orbital elements, N-body gravity with an adaptive leapfrog integrator. Sizes are exaggerated so you can see them (switch to true scale in Layers); distances and masses are real.</p>`,
     actions: [{ label: 'Got it', primary: true, onClick: closeModal }],
   });
 }
 
 function onboarding() {
-  if (store.get('gm.onboarded')) return;
+  if (store.get('sss.onboarded')) return;
   const steps = [
-    { t: 'Welcome, god.', b: 'This is our solar system running on real gravity. Look around: drag to orbit, pinch or scroll to zoom.' },
-    { t: 'Pick a weapon', b: 'The arsenal at the bottom goes from asteroids to black holes.' },
-    { t: 'Line up the shot', b: 'Tap space to place it, then drag back from it like a pool cue. Watch the dotted line, then let go.' },
-    { t: 'Want a challenge?', b: 'Open 🎯 Trick shots for missions with star ratings. ⏮ rewinds any shot.' },
+    { t: 'Our solar system, right now', b: 'Every planet is where it really is today, moving under real gravity. The Sun drags them through the galaxy, so their paths trace a helix.' },
+    { t: 'Launch something', b: 'Pick an object from the bar at the bottom. Then follow three steps: place it, aim it, set its speed.' },
+    { t: 'Keep an eye on Earth', b: 'The green band is the habitable zone. The Earth badge tells you if it is still livable.' },
   ];
   let i = 0;
   const show = () => modal({
     title: steps[i].t,
     body: `<p>${steps[i].b}</p><div class="dots">${steps.map((_, k) => `<i class="${k === i ? 'on' : ''}"></i>`).join('')}</div>`,
     actions: [
-      { label: i < steps.length - 1 ? 'Next' : "Let's go", primary: true, onClick: () => { if (++i < steps.length) show(); else { closeModal(); store.set('gm.onboarded', true); } } },
-      { label: 'Skip', onClick: () => { closeModal(); store.set('gm.onboarded', true); } },
+      { label: i < steps.length - 1 ? 'Next' : 'Start exploring', primary: true, onClick: () => { if (++i < steps.length) show(); else { closeModal(); store.set('sss.onboarded', true); } } },
+      { label: 'Skip', onClick: () => { closeModal(); store.set('sss.onboarded', true); } },
     ],
   });
   show();
 }
 
 $('#btn-missions').onclick = openMissions;
-$('#btn-trophy').onclick = openTrophies;
 $('#btn-menu').onclick = openMenu;
-$('#btn-help').onclick = openHelp;
 $('#btn-sound').onclick = () => { audio.ensure(); audio.setMuted(!audio.muted); updateSound(); };
 function updateSound() { $('#btn-sound').textContent = audio.muted ? '🔇' : '🔊'; $('#btn-sound').setAttribute('aria-label', audio.muted ? 'Unmute' : 'Mute'); }
 document.querySelectorAll('#views button').forEach((b) => { b.onclick = () => setView(b.dataset.view); });
@@ -1027,7 +1128,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === '?') openHelp();
   else if (/^[0-9]$/.test(k)) {
     const id = k === '0' ? 'sun' : PLANETS[+k - 1]?.id;
-    if (id && sim.get(id)) { select(id); setCamMode('follow'); }
+    if (id && sim.get(id)) centerOn(id);
   } else return;
   updateRail();
 });
@@ -1133,15 +1234,19 @@ function fadeTicker(now) {
 buildArsenal();
 buildRail();
 updateSound();
-$('#btn-trophy').dataset.count = S.achievements.size;
 views.showLabels = settings.labels;
 trails.visible = settings.trails;
 bloom.enabled = settings.bloom;
 document.body.dataset.view = 'solar';
 document.body.classList.toggle('mobile', MOBILE);
 freshUniverse();
-camera.position.set(0, 10, 16).multiplyScalar(MOBILE && innerWidth < innerHeight ? 1.8 : 1);
-controls.target.set(0, 0, 0);
+setView('helix');
+{
+  const f = refRender();
+  controls.target.copy(f);
+  camera.position.copy(f).add(new THREE.Vector3(-9, 3.2, 7).multiplyScalar(MOBILE && innerWidth < innerHeight ? 1.5 : 1));
+  rig.offsetGoal = null;
+}
 updateDock();
 
 (async () => {
@@ -1151,8 +1256,8 @@ updateDock();
     catch { toast('⚠ That share link looks broken. Here is a fresh solar system.'); }
   }
   const auto = store.get('gm.autosave');
-  if (auto?.sim?.t > 0.5) {
-    toast(`Resume your universe from year ${(START_YEAR + auto.sim.t).toFixed(1)}? <button class="link" id="resume">Resume</button>`, 'sticky');
+  if (auto?.sim?.bodies?.some((b) => b.spawned)) {
+    toast(`Resume your last run from year ${(START_YEAR + auto.sim.t).toFixed(1)}? <button class="link" id="resume">Resume</button>`, 'sticky');
     const b = document.getElementById('resume');
     if (b) b.onclick = () => { try { applySave(auto); } catch {} b.closest('.toast')?.remove(); };
   }

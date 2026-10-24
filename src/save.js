@@ -2,7 +2,7 @@
 // a few KB for the bodies, plus ~60 KB if the asteroid belt is included.
 
 export function buildSave(sim, settings) {
-  return { app: 'solar-god-mode', version: 1, savedAt: new Date().toISOString(), settings, sim: sim.serialize() };
+  return { app: 'solar-system-sim', version: 1, savedAt: new Date().toISOString(), settings, sim: sim.serialize() };
 }
 
 export function downloadJSON(data, name) {
@@ -27,7 +27,7 @@ export function readFile(file) {
 }
 
 export function validate(data) {
-  if (!data || data.app !== 'solar-god-mode' || !data.sim || !Array.isArray(data.sim.bodies)) throw new Error('This is not a God Mode save file.');
+  if (!data || !['solar-system-sim', 'solar-god-mode'].includes(data.app) || !data.sim || !Array.isArray(data.sim.bodies)) throw new Error('This is not a Solar System Simulator save file.');
   for (const b of data.sim.bodies) {
     for (const k of ['x', 'y', 'z', 'vx', 'vy', 'vz', 'mass']) if (typeof b[k] !== 'number' || !isFinite(b[k])) throw new Error('Save file has a broken body.');
     b.name = String(b.name || 'Body').slice(0, 40);

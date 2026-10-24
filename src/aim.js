@@ -5,20 +5,24 @@ import { glowTexture } from './textures.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const glow = glowTexture();
+const DIAL_R = 84;
+const SVGNS = 'http://www.w3.org/2000/svg';
 
-// Pool-cue launcher: click to place, drag back to aim and set power, release to shoot.
-// Shift while dragging tilts the shot out of the orbital plane. A ghost trajectory
-// is integrated on every move so you can see where the shot will go.
+// Launch wizard, built for touch first:
+//   1. place  - tap exactly where the object should start (tap again anywhere to move it)
+//   2. heading - drag the ring around the object to point it; drag the centre to nudge its position
+//   3. speed  - slider plus presets (orbit / escape / drop in), then Launch
+// The cue stick and a live ghost trajectory show the shot at every step.
 export class Aim {
   constructor(app) {
     this.app = app;
-    this.mode = null; // 'place' | 'drag' | 'armed'
+    this.mode = null; // 'place' | 'heading' | 'speed'
     this.spec = null;
     this.P = new THREE.Vector3();
     this.dir = new THREE.Vector3(1, 0, 0);
     this.elev = 0;
     this.speed = 0; // km/s relative to host
-    this.pullPx = 0;
+    this.speedTouched = false;
     this.normal = UP.clone();
     this.lastPredict = 0;
     this.hitId = null;
@@ -59,17 +63,118 @@ export class Aim {
     this.grid.material.depthWrite = false;
 
     this.group.add(this.ghost, this.cue, this.cueTip, this.path, this.impact, this.grid);
+    this.makeDial();
 
     const dom = app.renderer.domElement;
-    dom.addEventListener('pointerdown', (e) => this.down(e), { capture: true });
-    window.addEventListener('pointermove', (e) => this.move(e));
-    window.addEventListener('pointerup', (e) => this.up(e));
+    dom.addEventListener('pointerdown', (e) => { this.tapStart = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId }; });
+    dom.addEventListener('pointerup', (e) => this.canvasUp(e));
     window.addEventListener('keydown', (e) => this.key(e));
-    window.addEventListener('keyup', (e) => { if (e.key === 'Shift') this.shiftStart = null; });
   }
 
   get active() { return !!this.mode; }
 
+  // ---------------------------------------------------------- dial overlay
+  makeDial() {
+    const s = (DIAL_R + 40) * 2, c = s / 2;
+    const root = document.createElement('div');
+    root.className = 'aim-dial';
+    root.hidden = true;
+    const svg = document.createElementNS(SVGNS, 'svg');
+    svg.setAttribute('width', s); svg.setAttribute('height', s);
+    svg.setAttribute('viewBox', `0 0 ${s} ${s}`);
+    const mk = (tag, attrs) => { const e = document.createElementNS(SVGNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); svg.appendChild(e); return e; };
+    mk('circle', { cx: c, cy: c, r: DIAL_R, class: 'dial-track' });
+    for (let i = 0; i < 24; i++) {
+      const a = (i / 24) * Math.PI * 2, r0 = DIAL_R - (i % 6 === 0 ? 9 : 5);
+      mk('line', { x1: c + Math.cos(a) * r0, y1: c + Math.sin(a) * r0, x2: c + Math.cos(a) * DIAL_R, y2: c + Math.sin(a) * DIAL_R, class: 'dial-tick' });
+    }
+    this.dialArrow = mk('line', { x1: c, y1: c, x2: c + DIAL_R, y2: c, class: 'dial-arrow' });
+    this.dialBand = mk('circle', { cx: c, cy: c, r: DIAL_R, class: 'dial-band' });
+    this.dialKnob = mk('g', { class: 'dial-knob' });
+    const knobC = document.createElementNS(SVGNS, 'circle');
+    knobC.setAttribute('r', 17);
+    const knobA = document.createElementNS(SVGNS, 'path');
+    knobA.setAttribute('d', 'M -6 -7 L 8 0 L -6 7 Z');
+    this.dialKnob.append(knobC, knobA);
+    this.dialCenter = mk('circle', { cx: c, cy: c, r: 22, class: 'dial-center' });
+    root.appendChild(svg);
+    const hint = document.createElement('div');
+    hint.className = 'dial-hint';
+    root.appendChild(hint);
+    this.dialHint = hint;
+    document.body.appendChild(root);
+    this.dial = { root, c };
+
+    const start = (kind) => (e) => {
+      if (!this.mode || this.mode === 'place') return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.target.setPointerCapture(e.pointerId);
+      this.dragging = { kind, id: e.pointerId };
+      this.app.controls.enabled = false;
+      root.classList.add(`drag-${kind}`);
+      this.app.audio.click(0.8);
+    };
+    this.dialBand.addEventListener('pointerdown', start('heading'));
+    this.dialKnob.addEventListener('pointerdown', start('heading'));
+    this.dialCenter.addEventListener('pointerdown', start('move'));
+    const move = (e) => {
+      if (!this.dragging || e.pointerId !== this.dragging.id) return;
+      const hit = this.planeHit(e, this.P);
+      if (!hit) return;
+      if (this.dragging.kind === 'heading') {
+        const d = hit.sub(this.P).projectOnPlane(this.normal);
+        if (d.lengthSq() > 0) {
+          const before = Math.round(this.headingDeg());
+          this.dir.copy(d.normalize());
+          if (Math.round(this.headingDeg() / 5) !== Math.round(before / 5)) this.app.audio.click(1.1);
+          if (this.mode === 'heading' || this.mode === 'speed') this.refresh();
+        }
+      } else {
+        this.P.copy(hit);
+        if (!this.speedTouched) this.orbitDefaults(false);
+        this.refresh();
+      }
+    };
+    const end = (e) => {
+      if (!this.dragging || e.pointerId !== this.dragging.id) return;
+      root.classList.remove(`drag-${this.dragging.kind}`);
+      this.dragging = null;
+      this.app.controls.enabled = true;
+      this.refresh(true);
+    };
+    for (const el of [this.dialBand, this.dialKnob, this.dialCenter]) {
+      el.addEventListener('pointermove', move);
+      el.addEventListener('pointerup', end);
+      el.addEventListener('pointercancel', end);
+    }
+  }
+
+  headingDeg() { return THREE.MathUtils.radToDeg(Math.atan2(-this.dir.z, this.dir.x)); }
+
+  updateDial() {
+    const { root, c } = this.dial;
+    const show = this.mode === 'heading' || this.mode === 'speed';
+    root.hidden = !show;
+    if (!show) return;
+    const sp = this.screen(this.P);
+    const cam = this.app.camera;
+    const inFront = this.P.clone().project(cam).z < 1;
+    root.style.visibility = inFront ? '' : 'hidden';
+    root.style.transform = `translate(${sp.x - c}px, ${sp.y - c}px)`;
+    // on-screen angle of the world heading
+    const d = cam.position.distanceTo(this.P);
+    const tip = this.screen(this.P.clone().addScaledVector(this.velocityDir(), d * 0.05));
+    const a = Math.atan2(tip.y - sp.y, tip.x - sp.x);
+    const kx = c + Math.cos(a) * DIAL_R, ky = c + Math.sin(a) * DIAL_R;
+    this.dialArrow.setAttribute('x2', kx);
+    this.dialArrow.setAttribute('y2', ky);
+    this.dialKnob.setAttribute('transform', `translate(${kx} ${ky}) rotate(${THREE.MathUtils.radToDeg(a)})`);
+    root.classList.toggle('speed-step', this.mode === 'speed');
+    this.dialHint.textContent = this.mode === 'heading' ? 'Drag the ring to aim · drag the centre to move' : '';
+  }
+
+  // ---------------------------------------------------------- flow
   begin(spec) {
     this.spec = spec;
     this.mode = 'place';
@@ -79,33 +184,146 @@ export class Aim {
     this.impactLabel.visible = false;
     this.cue.visible = this.cueTip.visible = false;
     this.ghost.visible = false;
+    this.prediction = null;
     this.ghost.material.color.set(spec.kind === 'blackhole' ? '#ff9a4a' : spec.color);
+    this.updateGrid();
+    this.updateDial();
     this.app.onAimChange?.();
   }
 
   cancel() {
     this.mode = null;
+    this.dragging = null;
     this.group.visible = false;
     this.impactLabel.visible = false;
+    this.dial.root.hidden = true;
     this.app.controls.enabled = true;
     this.app.onAimChange?.();
   }
 
-  // Re-enter the armed state with a previous shot, for "reset to shot".
+  // Re-enter the wizard with a previous shot, for "undo shot".
   arm(shot) {
     this.begin(shot.spec);
     this.app.toRenderXYZ(shot.pos.x, shot.pos.y, shot.pos.z, this.P);
     this.dir.copy(shot.dir);
     this.elev = shot.elev;
     this.speed = shot.speed;
-    this.pullPx = shot.pullPx;
-    this.mode = 'armed';
+    this.speedTouched = true;
     this.normal.copy(UP);
     this.ghost.visible = true;
-    this.refreshVisuals(true);
-    this.app.onAimChange?.();
+    this.setStep('speed');
   }
 
+  setStep(step) {
+    this.mode = step;
+    this.ghost.visible = step !== 'place';
+    if (step === 'place') { this.path.visible = false; this.impact.visible = false; this.impactLabel.visible = false; this.cue.visible = this.cueTip.visible = false; }
+    this.refresh(true);
+  }
+
+  next() {
+    if (this.mode === 'heading') this.setStep('speed');
+    else if (this.mode === 'speed') this.fire();
+  }
+
+  back() {
+    if (this.mode === 'speed') this.setStep('heading');
+    else if (this.mode === 'heading') this.setStep('place');
+    else this.cancel();
+  }
+
+  canvasUp(e) {
+    const t = this.tapStart;
+    this.tapStart = null;
+    if (!this.mode || !t || t.id !== e.pointerId || this.dragging) return;
+    const moved = Math.hypot(e.clientX - t.x, e.clientY - t.y);
+    if (moved > 8 || performance.now() - t.t > 450) return; // that was a camera drag
+    const view = new THREE.Vector3();
+    this.app.camera.getWorldDirection(view);
+    this.normal.copy(Math.abs(view.y) > 0.2 ? UP : view.clone().negate());
+    const hit = this.planeHit(e, this.app.controls.target);
+    if (!hit) return;
+    this.P.copy(hit);
+    this.app.audio.click(0.7);
+    if (this.mode === 'place') {
+      this.orbitDefaults(true);
+      this.setStep('heading');
+    } else {
+      if (!this.speedTouched) this.orbitDefaults(false);
+      this.refresh(true);
+    }
+  }
+
+  // Start every shot as a prograde circular orbit around whatever dominates that spot,
+  // so the first ghost path is something sensible to tweak from.
+  orbitDefaults(resetHeading) {
+    const host = this.host();
+    const hp = new THREE.Vector3();
+    this.app.toRender(host, hp);
+    const rv = this.P.clone().sub(hp).projectOnPlane(UP);
+    const r = Math.max(rv.length(), 1e-6);
+    if (resetHeading) { this.dir.copy(UP).cross(rv).normalize(); this.elev = 0; this.speedTouched = false; }
+    this.speed = Math.sqrt((G * (host.mass + this.spec.mass)) / r) * KMS_PER_AUYR;
+  }
+
+  presetSpeed(kind) {
+    const host = this.host();
+    const hp = new THREE.Vector3();
+    this.app.toRender(host, hp);
+    const r = Math.max(this.P.distanceTo(hp), 1e-6);
+    const circ = Math.sqrt((G * (host.mass + this.spec.mass)) / r) * KMS_PER_AUYR;
+    if (kind === 'orbit') {
+      const rv = this.P.clone().sub(hp).projectOnPlane(UP);
+      this.dir.copy(UP).cross(rv).normalize();
+      this.elev = 0;
+      this.speed = circ;
+    }
+    if (kind === 'escape') this.speed = circ * Math.SQRT2 * 1.05;
+    if (kind === 'drop') this.speed = 0;
+    this.speedTouched = true;
+    this.app.audio.click(1.3);
+    this.refresh(true);
+  }
+
+  // slider position 0..1 <-> km/s, finer at the low end where orbits live
+  static toSpeed(x) { return 400 * Math.pow(x, 2.2); }
+  static fromSpeed(v) { return Math.pow(Math.min(v, 400) / 400, 1 / 2.2); }
+
+  setSpeed(kms) {
+    this.speed = Math.max(0, kms);
+    this.speedTouched = true;
+    this.refresh();
+  }
+
+  setElevation(deg) {
+    this.elev = THREE.MathUtils.degToRad(deg);
+    this.refresh();
+  }
+
+  nudge(kind, amount) {
+    if (kind === 'turn') this.dir.applyAxisAngle(this.normal, THREE.MathUtils.degToRad(amount));
+    if (kind === 'speed') { this.speed = Math.max(0, this.speed * (1 + amount)); this.speedTouched = true; }
+    if (kind === 'elev') this.elev = THREE.MathUtils.clamp(this.elev + THREE.MathUtils.degToRad(amount), -1.4, 1.4);
+    this.app.audio.click(1 + this.speed / 300);
+    this.refresh(true);
+  }
+
+  key(e) {
+    if (!this.mode || e.target.closest?.('input')) return;
+    if (e.key === 'Escape') { this.cancel(); e.preventDefault(); return; }
+    if (this.mode === 'place') return;
+    const step = e.shiftKey ? 5 : 1;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') this.nudge('turn', e.key === 'ArrowLeft' ? step : -step);
+    else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') this.nudge('speed', (e.key === 'ArrowUp' ? 0.02 : -0.02) * step);
+    else if (e.key === 'PageUp' || e.key === 'PageDown') this.nudge('elev', e.key === 'PageUp' ? step : -step);
+    else if (e.key === 'Enter') this.next();
+    else if (e.key === 'Backspace') this.back();
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  // ---------------------------------------------------------- geometry helpers
   ray(e) {
     const r = this.app.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
@@ -115,11 +333,6 @@ export class Aim {
   }
 
   planeHit(e, through) {
-    const cam = this.app.camera;
-    const view = new THREE.Vector3();
-    cam.getWorldDirection(view);
-    // fall back to a camera-facing plane when the ecliptic is seen edge-on
-    this.normal.copy(Math.abs(view.y) > 0.2 ? UP : view.clone().negate());
     const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(this.normal, through);
     const out = new THREE.Vector3();
     return this.ray(e).intersectPlane(plane, out) ? out : null;
@@ -128,139 +341,11 @@ export class Aim {
   screen(v) {
     const p = v.clone().project(this.app.camera);
     const r = this.app.renderer.domElement.getBoundingClientRect();
-    return new THREE.Vector2((p.x + 1) / 2 * r.width, (1 - p.y) / 2 * r.height);
+    return new THREE.Vector2(r.left + (p.x + 1) / 2 * r.width, r.top + (1 - p.y) / 2 * r.height);
   }
 
-  // Flow (same on touch and mouse): tap empty space to place the object, then drag back
-  // from the object like a pool cue and release to shoot. Drags elsewhere still move the camera.
-  down(e) {
-    if (!this.mode || e.button !== 0) return;
-    const sp = this.local(e);
-    if ((this.mode === 'placed' || this.mode === 'armed') && this.screen(this.P).distanceTo(sp) < (e.pointerType === 'touch' ? 56 : 36)) {
-      this.mode = 'drag';
-      this.dragFromArmed = this.speed > 0;
-      this.dragStart = sp;
-      this.pointerId = e.pointerId;
-      this.app.controls.enabled = false;
-      e.stopImmediatePropagation();
-      e.preventDefault();
-      this.app.audio.click(0.8);
-      this.app.onAimChange?.();
-      return;
-    }
-    this.tapStart = { x: sp.x, y: sp.y, t: performance.now(), id: e.pointerId };
-  }
-
-  local(e) {
-    const r = this.app.renderer.domElement.getBoundingClientRect();
-    return new THREE.Vector2(e.clientX - r.left, e.clientY - r.top);
-  }
-
-  move(e) {
-    if (!this.mode) return;
-    if (this.mode === 'place' && e.pointerType === 'mouse') {
-      const hit = this.planeHit(e, this.app.controls.target);
-      if (hit) { this.P.copy(hit); this.ghost.position.copy(hit); this.ghost.visible = true; }
-      this.updateGrid();
-      return;
-    }
-    if (this.mode !== 'drag' || e.pointerId !== this.pointerId) return;
-    const sp = this.local(e);
-    if (e.shiftKey) {
-      // Shift + drag: tilt out of the orbital plane
-      if (!this.shiftStart) this.shiftStart = { y: sp.y, elev: this.elev };
-      this.elev = THREE.MathUtils.clamp(this.shiftStart.elev + (this.shiftStart.y - sp.y) * 0.006, -1.4, 1.4);
-    } else {
-      this.shiftStart = null;
-      const q = this.planeHit(e, this.P);
-      if (!q) return;
-      const pull = q.clone().sub(this.P);
-      this.pullPx = this.screen(this.P).distanceTo(sp);
-      if (pull.lengthSq() > 0) this.dir.copy(pull).negate().projectOnPlane(this.normal).normalize();
-      const before = Math.floor(this.speed / 5);
-      this.speed = this.pxToSpeed(this.pullPx);
-      if (Math.floor(this.speed / 5) !== before) this.app.audio.click(0.6 + Math.min(this.speed, 300) / 200);
-    }
-    this.refreshVisuals();
-  }
-
-  up(e) {
-    if (this.tapStart && e.pointerId === this.tapStart.id) {
-      const sp = this.local(e);
-      const moved = Math.hypot(sp.x - this.tapStart.x, sp.y - this.tapStart.y);
-      const quick = performance.now() - this.tapStart.t < 400;
-      this.tapStart = null;
-      if (moved < 8 && quick && (this.mode === 'place' || this.mode === 'placed' || this.mode === 'armed') && e.target === this.app.renderer.domElement) {
-        const hit = this.planeHit(e, this.app.controls.target);
-        if (hit) {
-          this.P.copy(hit);
-          this.mode = 'placed';
-          this.speed = 0; this.pullPx = 0; this.elev = 0;
-          this.ghost.visible = true;
-          this.cue.visible = this.cueTip.visible = false;
-          this.path.visible = false; this.impact.visible = false; this.impactLabel.visible = false;
-          this.prediction = null;
-          this.updateGrid();
-          this.app.audio.click(0.7);
-          this.app.onAimChange?.();
-        }
-      }
-      return;
-    }
-    if (this.mode !== 'drag' || e.pointerId !== this.pointerId) return;
-    this.app.controls.enabled = true;
-    if (this.pullPx < 10) {
-      if (this.dragFromArmed) { this.mode = 'armed'; this.refreshVisuals(true); return; }
-      this.orbitDrop();
-      return;
-    }
-    this.mode = 'armed';
-    this.fire();
-  }
-
-  // Drop into a circular orbit around whatever dominates the placement point.
-  orbitDrop() {
-    const host = this.host();
-    const hp = new THREE.Vector3();
-    this.app.toRender(host, hp);
-    const rv = this.P.clone().sub(hp);
-    const r = rv.length();
-    this.normal.copy(UP);
-    this.dir.copy(UP).cross(rv).normalize();
-    this.elev = 0;
-    this.speed = Math.sqrt((G * (host.mass + this.spec.mass)) / r) * KMS_PER_AUYR;
-    this.pullPx = this.speedToPx(this.speed);
-    this.fire();
-  }
-
-  setElevation(deg) {
-    this.elev = THREE.MathUtils.degToRad(deg);
-    if (this.mode === 'armed') this.refreshVisuals(true);
-  }
-
-  nudge(kind, amount) {
-    if (kind === 'turn') this.dir.applyAxisAngle(this.normal, THREE.MathUtils.degToRad(amount));
-    if (kind === 'speed') { this.speed = Math.max(0, this.speed * (1 + amount)); this.pullPx = this.speedToPx(this.speed); }
-    if (kind === 'elev') this.elev = THREE.MathUtils.clamp(this.elev + THREE.MathUtils.degToRad(amount), -1.4, 1.4);
-    this.app.audio.click(1 + this.speed / 300);
-    this.refreshVisuals(true);
-  }
-
-  pxToSpeed(px) { return 90 * Math.pow(Math.max(0, px - 4) / 250, 1.5); }
-  speedToPx(s) { return 250 * Math.pow(s / 90, 1 / 1.5) + 4; }
-
-  key(e) {
-    if (!this.mode) return;
-    if (e.key === 'Escape') { this.cancel(); e.preventDefault(); return; }
-    if (this.mode !== 'armed') return;
-    const step = e.shiftKey ? 5 : 1;
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') this.nudge('turn', e.key === 'ArrowLeft' ? step : -step);
-    else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') this.nudge('speed', (e.key === 'ArrowUp' ? 0.02 : -0.02) * step);
-    else if (e.key === 'PageUp' || e.key === 'PageDown') this.nudge('elev', e.key === 'PageUp' ? step : -step);
-    else if (e.key === 'Enter' || e.key === ' ') this.fire();
-    else return;
-    e.preventDefault();
-    e.stopPropagation();
+  velocityDir() {
+    return this.dir.clone().multiplyScalar(Math.cos(this.elev)).addScaledVector(this.normal, Math.sin(this.elev)).normalize();
   }
 
   // The body whose gravity owns the placement point: a planet if inside its Hill sphere, else the dominant star.
@@ -282,8 +367,7 @@ export class Aim {
   }
 
   velocity() {
-    const v = this.dir.clone().multiplyScalar(Math.cos(this.elev)).addScaledVector(this.normal, Math.sin(this.elev)).normalize();
-    return v.multiplyScalar(this.speed / KMS_PER_AUYR);
+    return this.velocityDir().multiplyScalar(this.speed / KMS_PER_AUYR);
   }
 
   state() {
@@ -294,9 +378,8 @@ export class Aim {
   }
 
   fire() {
-    if (this.speed <= 0 && this.mode !== 'drag') return this.orbitDrop();
     const st = this.state();
-    const shot = { spec: this.spec, pos: { x: st.x, y: st.y, z: st.z }, dir: this.dir.clone(), elev: this.elev, speed: this.speed, pullPx: this.pullPx };
+    const shot = { spec: this.spec, pos: { x: st.x, y: st.y, z: st.z }, dir: this.dir.clone(), elev: this.elev, speed: this.speed };
     this.cancel();
     this.app.onLaunch(this.spec, st, shot);
   }
@@ -308,19 +391,20 @@ export class Aim {
     this.grid.quaternion.setFromUnitVectors(UP, this.normal);
   }
 
-  refreshVisuals(force) {
+  refresh(force) {
+    if (!this.mode) return;
+    this.updateGrid();
+    if (this.mode === 'place') { this.updateDial(); this.app.onAimChange?.(); return; }
     const cam = this.app.camera;
     this.ghost.position.copy(this.P);
-    this.updateGrid();
     const d = cam.position.distanceTo(this.P);
     const worldPerPx = (2 * d * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2))) / this.app.renderer.domElement.clientHeight;
-    const v = this.velocity();
-    const back = v.lengthSq() > 0 ? v.clone().normalize().negate() : this.dir.clone().negate();
-    const len = Math.max(this.pullPx, 10) * worldPerPx;
+    // pool-cue stick behind the object, longer for faster shots
+    const back = this.velocityDir().negate();
+    const len = (30 + Math.min(this.speed, 300) * 0.9) * worldPerPx;
     const w = worldPerPx * 3;
-    const gap = worldPerPx * 14;
-    const start = this.P.clone().addScaledVector(back, gap);
-    this.cue.visible = this.cueTip.visible = true;
+    const start = this.P.clone().addScaledVector(back, worldPerPx * 26);
+    this.cue.visible = this.cueTip.visible = this.mode === 'speed' && this.speed > 0;
     this.cue.position.copy(start).addScaledVector(back, len / 2 + w * 3);
     this.cue.scale.set(w, len, w);
     this.cue.quaternion.setFromUnitVectors(UP, back.clone().negate());
@@ -329,6 +413,7 @@ export class Aim {
     this.cueTip.quaternion.copy(this.cue.quaternion);
     const now = performance.now();
     if (force || now - this.lastPredict > 40) { this.lastPredict = now; this.predict(); }
+    this.updateDial();
     this.app.onAimChange?.();
   }
 
@@ -372,15 +457,11 @@ export class Aim {
 
   update(t) {
     if (!this.mode) return;
-    const pulse = 0.06 + Math.sin(t * 8) * 0.012;
-    this.impact.scale.setScalar(pulse);
+    this.impact.scale.setScalar(0.06 + Math.sin(t * 8) * 0.012);
     this.ghost.scale.setScalar(0.04 + Math.sin(t * 5) * 0.006);
-    if (this.mode === 'place') this.ghost.position.copy(this.P);
-    this.ghost.material.opacity = this.mode === 'place' ? 0.5 : 1;
-    // keep grid sized to the view
     const d = this.app.camera.position.distanceTo(this.app.controls.target);
-    const s = THREE.MathUtils.clamp(Math.pow(2, Math.round(Math.log2(d / 20))), 0.05, 64);
-    this.grid.scale.setScalar(s);
+    this.grid.scale.setScalar(THREE.MathUtils.clamp(Math.pow(2, Math.round(Math.log2(d / 20))), 0.05, 64));
+    this.updateDial(); // the camera may move under the dial
   }
 
   hud() {
@@ -393,6 +474,7 @@ export class Aim {
       elev: THREE.MathUtils.radToDeg(this.elev),
       host: host?.name,
       hit: this.prediction?.hit?.name,
+      hitIn: this.prediction?.hit ? this.prediction.pts[this.prediction.pts.length - 1][3] : null,
     };
   }
 }
