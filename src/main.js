@@ -30,6 +30,7 @@ const settings = Object.assign({
   trails: true,
   grid: true,
   hz: false,
+  reels: true, // chase + three replays after each launch
   scale: 'visible',
 }, migrateSettings(store.get('sss.settings', {})));
 // v2 flipped the defaults: gravity wells on, habitable zone off
@@ -293,6 +294,7 @@ function launch(spec, st, shot) {
   setPlaying(true);
   updateDock();
   log({ kind: 'launch', t: sim.t, name: spec.name, speed: shot.speed, host: st.host?.name });
+  startFlight(b, shot);
 }
 
 function resetToShot() {
@@ -312,6 +314,7 @@ function resetToShot() {
 // they really are now, and the contrails already have a few decades of history.
 const J2000 = Date.UTC(2000, 0, 1, 12);
 function freshUniverse() {
+  abortReel();
   views.clear();
   trails.reset();
   sim.initSolarSystem({ belt: 0 });
@@ -342,6 +345,7 @@ function resetVisuals() {
 }
 
 function loadSim(data, { keepMission = false } = {}) {
+  abortReel();
   if (!keepMission) endMission(true);
   sim.load(data);
   if (!settings.belt && sim.belt) sim.initBelt(0);
@@ -352,11 +356,13 @@ function loadSim(data, { keepMission = false } = {}) {
 
 // ---------------------------------------------------------------- events
 sim.on((ev) => {
-  if (S.replay) {
+  if (S.replay || S.reel) {
     // re-running the past: show the effects, but don't log, score or record anything
-    if (ev.kind === 'impact' && ev.a === S.replay.r.a && ev.b === S.replay.r.b && !S.replay.endAt) S.replay.endAt = performance.now() + 4500;
+    if (S.replay && ev.kind === 'impact' && ev.a === S.replay.r.a && ev.b === S.replay.r.b && !S.replay.endAt) S.replay.endAt = performance.now() + 4500;
+    if (ev.kind === 'impact') reelImpact(ev);
     if (ev.kind !== 'impact') return;
   } else {
+    if (ev.kind === 'impact') flightImpact(ev);
     if (ev.kind === 'impact') {
       ev.replay = replayFor(ev);
       ev.severe = MAJOR.has(ev.b) || (ev.aKind === 'blackhole' && MAJOR.has(ev.a));
@@ -383,11 +389,184 @@ sim.on((ev) => {
     }
     if (S.selected === ev.b) select(ev.a);
   }
-  if (S.mission && !S.replay) {
+  if (S.mission && !S.replay && !S.reel) {
     const r = S.mission.def.onEvent?.(ev, game(), S.mission.data);
     if (r) missionResult(r);
   }
 });
+
+// ---------------------------------------------------------------- launch follow-up
+// Angry Birds style: after a launch the camera chases the shot live for up to ~10 s (or until
+// it hits something and the dust settles), then the same flight re-runs three times from
+// different angles, about 10 s each, before handing back to the present. Skippable throughout.
+const REEL_SECONDS = 10;
+const REEL_CAMS = ['Chase cam', 'Side view', 'Top-down'];
+
+function startFlight(b, shot) {
+  const F = {
+    id: b.id, name: b.name, shot, t0: sim.t, snap: sim.snapshot(), trail: trails.count,
+    userSpeed: S.speed, elapsed: 0, hitAt: 0, hitT: null, target: shot.hitId || null,
+  };
+  S.flight = F;
+  // pace it so the predicted impact lands at ~7 s, or ~1 predicted path plays in 10 s
+  const years = shot.hitIn ? shot.hitIn / 0.7 : shot.years || 1;
+  S.speed = THREE.MathUtils.clamp(years / REEL_SECONDS, 0.002, 50);
+  S.selected = b.id;
+  setCamMode('follow');
+  const host = sim.get(shot.host) || sim.dominantStar(b);
+  const d = host ? Math.hypot(b.x - host.x, b.y - host.y, b.z - host.z) : 1;
+  rig.offsetGoal = camera.position.clone().sub(controls.target).setLength(THREE.MathUtils.clamp(d * 0.5, sim.radius(b) * 12, 60));
+  document.body.classList.add('flying');
+  reelBar(`<span><b>🎯 In flight</b> ${b.name}</span>`, [['Skip ▸', () => endFlight()]]);
+}
+
+function reelBar(label, buttons) {
+  const bar = $('#replaybar');
+  bar.hidden = false;
+  bar.innerHTML = `${label}<span class="rb-btns">${buttons.map(([t], i) => `<button data-b="${i}" class="${i === buttons.length - 1 ? 'primary' : ''}">${t}</button>`).join('')}</span>`;
+  bar.querySelectorAll('[data-b]').forEach((el) => { el.onclick = buttons[+el.dataset.b][1]; });
+}
+
+function tickFlight(dt, now) {
+  const F = S.flight;
+  if (!F) return;
+  F.elapsed += dt;
+  const settled = F.hitAt && now - F.hitAt > 2500;
+  const gone = !F.hitAt && !sim.get(F.id);
+  if (settled || gone || F.elapsed > REEL_SECONDS) endFlight();
+}
+
+function flightImpact(ev) {
+  const F = S.flight;
+  if (!F || F.hitAt || (ev.a !== F.id && ev.b !== F.id)) return;
+  F.hitAt = performance.now();
+  F.hitT = sim.t;
+  F.target = ev.a === F.id ? ev.b : ev.a;
+}
+
+function endFlight() {
+  const F = S.flight;
+  if (!F) return;
+  S.flight = null;
+  if (settings.reels === false) return wrapUp(F);
+  S.reel = { F, present: sim.snapshot(), presentTrail: trails.count, tEnd: sim.t, i: -1 };
+  nextReel();
+}
+
+function nextReel() {
+  const R = S.reel;
+  if (!R) return;
+  R.i++;
+  if (R.i >= REEL_CAMS.length) return finishReels();
+  const F = R.F;
+  sim.restore(F.snap);
+  trails.rewindTo(F.trail);
+  cinema(true);
+  R.elapsed = 0;
+  R.hitSeen = 0;
+  R.base = Math.max(1e-6, (R.tEnd - F.t0) / (REEL_SECONDS * (F.hitT ? 0.75 : 1)));
+  S.speed = R.base;
+  S.playing = true;
+  aimReelCamera(R.i);
+  document.body.classList.add('reeling');
+  reelBar(`<span><b>▶ Replay ${R.i + 1}/${REEL_CAMS.length}</b> ${REEL_CAMS[R.i]}</span>`, [
+    ['Skip ▸', () => nextReel()],
+    ['Done', () => finishReels()],
+  ]);
+  updateDock();
+}
+
+// what the replay looks at: whatever it hit, or the star it was launched around
+function reelFocus(F) {
+  return [F.target, F.shot.host].map((id) => id && sim.get(id)).find(Boolean) || sim.dominantStar(sim.get(F.id) || {});
+}
+
+function aimReelCamera(i) {
+  const F = S.reel.F;
+  const shotBody = sim.get(F.id);
+  const focus = reelFocus(F);
+  if (i === 0 && shotBody) { S.selected = F.id; setCamMode('ride'); return; }
+  S.selected = focus?.id || F.id;
+  setCamMode('follow');
+  if (!focus || !shotBody) return;
+  const ab = new THREE.Vector3(shotBody.x - focus.x, shotBody.y - focus.y, shotBody.z - focus.z);
+  const gap = ab.length();
+  const Ra = sim.radius(focus);
+  if (i === 2) {
+    // straight down on the whole flight
+    const D = THREE.MathUtils.clamp(gap * 2.6 + Ra * 4, Ra * 8, 400);
+    rig.offsetGoal = new THREE.Vector3(0, D, D * 0.001);
+    return;
+  }
+  // side-on, so the shot crosses the frame into its target
+  ab.normalize();
+  const side = ab.clone().cross(new THREE.Vector3(0, 1, 0));
+  if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
+  const dir = side.normalize().add(new THREE.Vector3(0, 0.4, 0)).addScaledVector(ab, -0.2).normalize();
+  rig.offsetGoal = dir.multiplyScalar(THREE.MathUtils.clamp(gap * 1.5 + Ra * 2, Ra * 6, 300));
+}
+
+function reelImpact(ev) {
+  const R = S.reel;
+  if (R && !R.hitSeen && (ev.a === R.F.id || ev.b === R.F.id)) R.hitSeen = R.elapsed || 1e-3;
+}
+
+function tickReel(dt) {
+  const R = S.reel;
+  if (!R) return;
+  R.elapsed += dt;
+  const F = R.F;
+  // slow motion into the impact, then a slower aftermath
+  if (F.hitT) {
+    const left = (F.hitT - sim.t) / Math.max(1e-9, F.hitT - F.t0);
+    S.speed = R.base * (R.hitSeen ? 0.4 : THREE.MathUtils.clamp(left / 0.3, 0.15, 1));
+  }
+  // the chase cam has nothing to chase once the shot is swallowed: look at what it hit
+  if (rig.mode === 'ride' && !sim.get(F.id)) {
+    const f = reelFocus(F);
+    if (f) { S.selected = f.id; setCamMode('follow'); }
+  }
+  const after = R.hitSeen ? R.elapsed - R.hitSeen > 2.5 : sim.t >= R.tEnd;
+  if (after || R.elapsed > REEL_SECONDS * 1.8) nextReel();
+}
+
+function finishReels() {
+  const R = S.reel;
+  if (!R) return;
+  S.reel = null;
+  sim.restore(R.present);
+  trails.count = R.presentTrail;
+  cinema(false);
+  wrapUp(R.F);
+}
+
+// drop any chase or replay without restoring anything (undo, load, reset)
+function abortReel() {
+  const F = S.flight || S.reel?.F;
+  if (!F) return;
+  S.flight = null;
+  S.reel = null;
+  cinema(false);
+  S.speed = F.userSpeed;
+  document.body.classList.remove('flying', 'reeling');
+  $('#replaybar').hidden = true;
+  controls.enabled = true;
+  if (rig.mode === 'ride') rig.mode = 'system';
+}
+
+// back to normal play: the user's speed, the camera on whatever matters now
+function wrapUp(F) {
+  S.speed = F.userSpeed;
+  document.body.classList.remove('flying', 'reeling');
+  $('#replaybar').hidden = true;
+  controls.enabled = true;
+  const keep = [F.id, F.target].find((id) => id && sim.get(id));
+  if (keep) { S.selected = keep; setCamMode('follow'); } else { setCamMode('system'); fitDefault(); }
+  S.playing = true;
+  updateDock();
+  renderInfo();
+  updateRail();
+}
 
 // ---------------------------------------------------------------- event log
 // Everything that happens lands here instead of popping up over the action. Collapsed, it shows
@@ -481,6 +660,8 @@ function cinema(on) {
 
 function startReplay(r) {
   if (!r || S.replay) return;
+  if (S.flight) { const F = S.flight; S.flight = null; wrapUp(F); }
+  if (S.reel) finishReels();
   if (S.view === 'galaxy') setView('helix');
   aim.cancel();
   LOG.open = false;
@@ -769,6 +950,8 @@ function homeCamera(v = S.view) {
 
 function setView(v) {
   if (S.replay) endReplay();
+  if (S.flight) { const F = S.flight; S.flight = null; wrapUp(F); }
+  if (S.reel) finishReels();
   if (aim.active) aim.cancel();
   S.rewinding = null;
   document.body.classList.remove('rewinding');
@@ -847,7 +1030,8 @@ function recordHist(now) {
   if (hist.length === 2) updateDock();
 }
 function rewind() {
-  if (S.view === 'galaxy' || S.replay) return;
+  if (S.view === 'galaxy' || S.replay || S.reel) return;
+  if (S.flight) abortReel();
   if (hist.length < 2) return toast('Nothing to rewind yet. Let time run for a moment.');
   if (aim.active) aim.cancel();
   audio.click(0.6);
@@ -900,7 +1084,7 @@ function buildArsenal() {
   }
 }
 
-const STEPS = [['place', 'Place'], ['heading', 'Aim & launch']];
+const STEPS = [['place', 'Place'], ['heading', 'Pull & let go']];
 function renderAimBar() {
   const h = aim.hud();
   const bar = $('#aimbar');
@@ -924,11 +1108,11 @@ function renderAimBar() {
     let body = '';
     if (h.mode === 'place') body = `<div class="aim-msg"><b>${s.icon} ${s.name}</b> Tap anywhere in space to place it.</div>`;
     if (h.mode === 'heading') body = `
-      <div class="aim-msg">Drag the <b>knob</b> around to aim, and <b>outward</b> for more speed. On the ring is a circular orbit; the dashed ring is escape speed. Drag the <b>centre</b> to move it.</div>
+      <div class="aim-msg"><b>Pull it back</b> like a slingshot and <b>let go</b>. It flies the opposite way, faster the further you pull. Tap elsewhere to move it.</div>
       <label class="tilt">Tilt <input type="range" min="-80" max="80" step="1" id="tilt" aria-label="Tilt above or below the planets' plane"><output id="tilt-val"></output></label>
       <div class="aim-live"></div>`;
     const back = h.mode === 'place' ? 'Cancel' : 'Back';
-    const next = h.mode === 'heading' ? '🚀 Launch' : '';
+    const next = '';
     bar.innerHTML = `<div class="wiz-steps">${steps}</div>${body}
       <div class="aim-actions"><button data-a="back">${back}</button>${next ? `<button data-a="next" class="primary">${next}</button>` : ''}</div>`;
     // a step change swallows taps for a moment so a repeated tap can't skip straight to Launch
@@ -947,9 +1131,12 @@ function renderAimBar() {
   if (tv) tv.textContent = `${h.elev.toFixed(0)}°`;
   const live = bar.querySelector('.aim-live');
   if (live) {
-    const hit = h.hit ? `<span class="bad">⚠ Hits ${h.hit} in ${h.hitIn < 1 ? `${(h.hitIn * 12).toFixed(1)} months` : `${h.hitIn.toFixed(1)} yr`}</span>` : '<span class="muted">No impact predicted</span>';
-    const kind = h.mult === 0 ? 'stopped dead' : Math.abs(h.mult - 1) < 0.01 ? 'circular orbit' : Math.abs(h.mult - Math.SQRT2) < 0.01 ? 'escape speed' : `${h.mult.toFixed(2)}× orbit speed`;
-    live.innerHTML = `${hit}<br><span class="muted">Speed <b class="mono">${h.speed.toFixed(1)} km/s</b> relative to ${h.host} · ${kind}</span>`;
+    if (!h.aiming) live.innerHTML = '<span class="muted">The ring shows the pull for a circular orbit; the dashed ring is escape speed.</span>';
+    else {
+      const hit = h.hit ? `<span class="bad">⚠ Hits ${h.hit} in ${h.hitIn < 1 ? `${(h.hitIn * 12).toFixed(1)} months` : `${h.hitIn.toFixed(1)} yr`}</span>` : '<span class="muted">No impact predicted</span>';
+      const kind = Math.abs(h.mult - 1) < 0.01 ? 'circular orbit' : Math.abs(h.mult - Math.SQRT2) < 0.01 ? 'escape speed' : `${h.mult.toFixed(2)}× orbit speed`;
+      live.innerHTML = `${hit}<br><span class="muted">Speed <b class="mono">${h.speed.toFixed(1)} km/s</b> relative to ${h.host} · ${kind}</span>`;
+    }
   }
 }
 
@@ -1205,7 +1392,7 @@ window.addEventListener('drop', async (e) => {
 });
 
 setInterval(() => {
-  if (S.view === 'galaxy' || S.mission || S.replay || !sim.bodies.some((b) => b.spawned)) return;
+  if (S.view === 'galaxy' || S.mission || S.replay || S.reel || !sim.bodies.some((b) => b.spawned)) return;
   store.set('gm.autosave', buildSave(sim, { view: S.view, speed: S.speed, frame: settings.frame, drift: settings.drift }));
 }, 15000);
 
@@ -1242,6 +1429,7 @@ function openMenu() {
       <input type="range" id="set-drift" min="0" max="1" step="0.001"></label>
     <label class="row">Contrail length <input type="range" id="set-trail" min="0.05" max="1" step="0.01"></label>
     <label class="row check"><input type="checkbox" id="set-belt"> Asteroid belt</label>
+    <label class="row check"><input type="checkbox" id="set-reels"> Chase cam and 3 replays after each launch</label>
     <label class="row check"><input type="checkbox" id="set-slowmo"> Auto slow-mo on close calls</label>
     <label class="row check"><input type="checkbox" id="set-lens"> Gravitational lensing</label>
     <label class="row check"><input type="checkbox" id="set-bloom"> Glow (bloom)</label>
@@ -1267,6 +1455,7 @@ function openMenu() {
     tr.oninput = () => { settings.trailLength = trails.length = +tr.value; saveSettings(); };
     const chk = (id, key, after) => { const c = box.querySelector(id); c.checked = settings[key]; c.onchange = () => { settings[key] = c.checked; saveSettings(); after?.(); }; };
     chk('#set-belt', 'belt', () => { if (settings.belt) sim.initBelt(MOBILE ? 500 : 900); else sim.initBelt(0); });
+    chk('#set-reels', 'reels');
     chk('#set-slowmo', 'slowmo');
     chk('#set-lens', 'lensing');
     chk('#set-bloom', 'bloom', () => { bloom.enabled = settings.bloom; });
@@ -1282,7 +1471,8 @@ function openHelp() {
       <ol class="howto">
         <li><b>Pick</b> an object from the bar at the bottom.</li>
         <li><b>Place</b> it: tap exactly where it should start.</li>
-        <li><b>Aim</b>: drag the knob around the ring to point it, and outward or inward to change speed. On the ring is a circular orbit, the dashed ring is escape speed, the centre stops it dead. The dotted line shows where it will go. Then Launch.</li>
+        <li><b>Launch</b>: a slingshot appears around it. Pull it back and let go; it flies the opposite way, faster the further you pull. The ring marks the pull for a circular orbit, the dashed ring escape speed. The dotted line shows where it will go.</li>
+        <li><b>Watch</b>: the camera chases it, then three replays (chase cam, side view, top-down) show what happened. Skip them any time, or turn them off in the menu.</li>
         <li><b>Rewind</b> winds time back a few seconds (press again to go further), then plays forward. <b>Undo</b> takes you back to just before your last launch, with the same aim. <b>Reset</b> (top bar) starts over with today's solar system. Collisions in the <b>Event log</b> (top right) can be replayed close up.</li>
       </ol>
       <h4>Look around</h4>
@@ -1307,7 +1497,7 @@ function onboarding() {
   if (store.get('sss.onboarded')) return;
   const steps = [
     { t: 'Our solar system, right now', b: 'Every planet is where it really is today, moving under real gravity. The Sun drags them through the galaxy, so their paths trace a helix.' },
-    { t: 'Launch something', b: 'Pick an object from the bar at the bottom. Then tap where it should start, drag the knob to aim it (further out = faster), and launch.' },
+    { t: 'Launch something', b: 'Pick an object from the bar at the bottom. Then tap where it should start, pull it back like a slingshot and let go. Three replays show what happened.' },
     { t: 'Keep an eye on Earth', b: 'The green band is the habitable zone. The Earth badge tells you if it is still livable.' },
   ];
   let i = 0;
@@ -1409,16 +1599,17 @@ function frameLoop(now) {
   if (S.view !== 'galaxy') {
     if (S.rewinding) tickRewind(dt);
     else if (S.playing && !aim.active) {
-      const target = settings.slowmo && !S.replay ? closeCallFactor() : 1; // replays pace themselves
+      const target = settings.slowmo && !S.replay && !S.reel && !S.flight ? closeCallFactor() : 1; // these pace themselves
       S.slow += (target - S.slow) * (target < S.slow ? 0.5 : 0.04);
       const span = S.speed * dt * S.slow;
       sim.sampleDt = Math.min(0.05, Math.max(0.002, S.speed / 90));
       dtSim = sim.advance(span, MOBILE ? 350 : 700);
       S.dilated = dtSim < span * 0.8;
       if (sim.t > 1000) unlock('time_lord');
-      if (!S.replay) { recordSnap(now); recordHist(now); }
-      else tickReplay(now);
-      if (S.mission && !S.mission.done && !S.replay && now - missionT > 100) {
+      if (S.replay) tickReplay(now);
+      else if (S.reel) tickReel(dt);
+      else { recordSnap(now); recordHist(now); tickFlight(dt, now); }
+      if (S.mission && !S.mission.done && !S.replay && !S.reel && now - missionT > 100) {
         missionT = now;
         const r = S.mission.def.tick?.(game(), S.mission.data);
         if (r) missionResult(r);

@@ -5,19 +5,18 @@ import { glowTexture } from './textures.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const glow = glowTexture();
-const DIAL_R = 84; // the ring: dragging around it aims; a knob sitting on it means circular-orbit speed
+const DIAL_R = 84; // pulling back this far gives circular-orbit speed
 const KNOB_MIN = 30, KNOB_MAX = 2 * DIAL_R;
-// knob distance from the centre <-> speed as a multiple of the local circular-orbit speed
+// pull length <-> speed as a multiple of the local circular-orbit speed
 const multFromR = (r) => (r <= KNOB_MIN ? 0 : ((Math.min(r, KNOB_MAX) - KNOB_MIN) / (DIAL_R - KNOB_MIN)) ** 1.5);
 const rFromMult = (m) => KNOB_MIN + (DIAL_R - KNOB_MIN) * Math.cbrt(m * m);
 const SVGNS = 'http://www.w3.org/2000/svg';
 
-// Launch wizard, built for touch first:
-//   1. place  - tap exactly where the object should start (tap again anywhere to move it)
-//   2. heading - drag the knob around the ring to point it, and in or out to set the speed
-//               (on the ring = circular orbit around whatever dominates that spot, dashed ring =
-//               escape, centre = stop dead). Drag the centre to nudge its position, then Launch.
-// The cue stick and a live ghost trajectory show the shot at every step.
+// Launching, Angry Birds style and built for touch first:
+//   1. place   - tap exactly where the object should start (tap again anywhere to move it)
+//   2. heading - a slingshot appears around it: pull back and let go. Pull length sets the speed
+//                as a multiple of the circular-orbit speed at that spot; a ghost trajectory shows
+//                where it will go while you pull.
 export class Aim {
   constructor(app) {
     this.app = app;
@@ -41,10 +40,6 @@ export class Aim {
     this.ghost = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, sizeAttenuation: false, depthTest: false, transparent: true, blending: THREE.AdditiveBlending }));
     this.ghost.scale.setScalar(0.05);
     this.ghost.renderOrder = 10;
-    this.cue = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 1, 1, 12, 1), new THREE.MeshBasicMaterial({ color: 0xe8d2a8, transparent: true, opacity: 0.85, depthTest: false }));
-    this.cue.renderOrder = 9;
-    this.cueTip = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 12, 1), new THREE.MeshBasicMaterial({ color: 0x7fd3ff, depthTest: false }));
-    this.cueTip.renderOrder = 9;
 
     const n = 400;
     const pg = new THREE.BufferGeometry();
@@ -68,7 +63,7 @@ export class Aim {
     this.grid.material.opacity = 0.22;
     this.grid.material.depthWrite = false;
 
-    this.group.add(this.ghost, this.cue, this.cueTip, this.path, this.impact, this.grid);
+    this.group.add(this.ghost, this.path, this.impact, this.grid);
     this.makeDial();
 
     const dom = app.renderer.domElement;
@@ -79,99 +74,86 @@ export class Aim {
 
   get active() { return !!this.mode; }
 
-  // ---------------------------------------------------------- dial overlay
+  // ---------------------------------------------------------- slingshot overlay
+  // A slingshot drawn around the placed object. Grab anywhere near it, pull back like a
+  // catapult and let go: it flies the opposite way, faster the further you pulled. Faint rings
+  // show the pull for a circular orbit and for escape speed; the pull snaps to each.
   makeDial() {
-    const s = (KNOB_MAX + 40) * 2, c = s / 2;
+    const s = (KNOB_MAX + 60) * 2, c = s / 2;
     const root = document.createElement('div');
-    root.className = 'aim-dial';
+    root.className = 'aim-dial sling';
     root.hidden = true;
     const svg = document.createElementNS(SVGNS, 'svg');
     svg.setAttribute('width', s); svg.setAttribute('height', s);
     svg.setAttribute('viewBox', `0 0 ${s} ${s}`);
-    const mk = (tag, attrs) => { const e = document.createElementNS(SVGNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); svg.appendChild(e); return e; };
-    mk('circle', { cx: c, cy: c, r: DIAL_R, class: 'dial-track' });
-    for (let i = 0; i < 24; i++) {
-      const a = (i / 24) * Math.PI * 2, r0 = DIAL_R - (i % 6 === 0 ? 9 : 5);
-      mk('line', { x1: c + Math.cos(a) * r0, y1: c + Math.sin(a) * r0, x2: c + Math.cos(a) * DIAL_R, y2: c + Math.sin(a) * DIAL_R, class: 'dial-tick' });
-    }
+    const mk = (tag, attrs, parent = svg) => { const e = document.createElementNS(SVGNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent.appendChild(e); return e; };
     const rEsc = rFromMult(Math.SQRT2);
-    mk('circle', { cx: c, cy: c, r: rEsc, class: 'dial-escape' });
-    mk('text', { x: c, y: c - DIAL_R - 6, class: 'dial-text' }).textContent = 'orbit';
-    mk('text', { x: c, y: c - rEsc - 6, class: 'dial-text esc' }).textContent = 'escape';
-    this.dialArrow = mk('line', { x1: c, y1: c, x2: c + DIAL_R, y2: c, class: 'dial-arrow' });
-    this.dialBand = mk('circle', { cx: c, cy: c, r: DIAL_R, class: 'dial-band' });
-    this.dialKnob = mk('g', { class: 'dial-knob' });
-    const knobC = document.createElementNS(SVGNS, 'circle');
-    knobC.setAttribute('r', 17);
-    const knobA = document.createElementNS(SVGNS, 'path');
-    knobA.setAttribute('d', 'M -6 -7 L 8 0 L -6 7 Z');
-    this.dialKnob.append(knobC, knobA);
-    this.dialCenter = mk('circle', { cx: c, cy: c, r: 22, class: 'dial-center' });
+    this.guides = mk('g', { class: 'sling-guides' });
+    mk('circle', { cx: c, cy: c, r: DIAL_R, class: 'dial-track' }, this.guides);
+    mk('circle', { cx: c, cy: c, r: rEsc, class: 'dial-escape' }, this.guides);
+    this.guideOrbit = mk('text', { x: c, y: c + DIAL_R + 14, class: 'dial-text' }, this.guides);
+    this.guideOrbit.textContent = 'orbit';
+    this.guideEsc = mk('text', { x: c, y: c + rEsc + 14, class: 'dial-text esc' }, this.guides);
+    this.guideEsc.textContent = 'escape';
+    // the fork: a Y whose arms hold the bands, sitting just below the object
+    mk('path', { d: `M ${c} ${c + 62} L ${c} ${c + 30} M ${c} ${c + 30} Q ${c - 4} ${c + 14} ${c - 24} ${c - 2} M ${c} ${c + 30} Q ${c + 4} ${c + 14} ${c + 24} ${c - 2}`, class: 'sling-fork' });
+    this.bandL = mk('line', { x1: c - 24, y1: c - 2, x2: c, y2: c, class: 'sling-band' });
+    this.bandR = mk('line', { x1: c + 24, y1: c - 2, x2: c, y2: c, class: 'sling-band' });
+    this.pouch = mk('circle', { cx: c, cy: c, r: 26, class: 'sling-pouch' });
+    this.dialArrow = mk('line', { x1: c, y1: c, x2: c, y2: c, class: 'dial-arrow' });
     this.dialSpeed = mk('text', { x: c, y: c, class: 'dial-speed' });
+    // big invisible grab zone around the object
+    this.grab = mk('circle', { cx: c, cy: c, r: 70, class: 'sling-grab' });
     root.appendChild(svg);
-    const hint = document.createElement('div');
-    hint.className = 'dial-hint';
-    root.appendChild(hint);
-    this.dialHint = hint;
     document.body.appendChild(root);
     this.dial = { root, c };
 
-    const start = (kind) => (e) => {
-      if (!this.mode || this.mode === 'place') return;
+    this.grab.addEventListener('pointerdown', (e) => {
+      if (this.mode !== 'heading') return;
       e.preventDefault();
       e.stopPropagation();
-      e.target.setPointerCapture(e.pointerId);
-      this.dragging = { kind, id: e.pointerId };
+      this.grab.setPointerCapture(e.pointerId);
+      this.dragging = { kind: 'pull', id: e.pointerId };
+      this.pull = new THREE.Vector2();
       this.app.controls.enabled = false;
-      root.classList.add(`drag-${kind}`);
+      root.classList.add('pulling');
       this.app.audio.click(0.8);
-    };
-    this.dialBand.addEventListener('pointerdown', start('heading'));
-    this.dialKnob.addEventListener('pointerdown', start('knob'));
-    this.dialCenter.addEventListener('pointerdown', start('move'));
-    const move = (e) => {
+    });
+    this.grab.addEventListener('pointermove', (e) => {
       if (!this.dragging || e.pointerId !== this.dragging.id) return;
+      const sp = this.screen(this.P);
+      this.pull.set(e.clientX - sp.x, e.clientY - sp.y);
+      let r = this.pull.length();
+      let m = multFromR(r);
+      for (const snap of [1, Math.SQRT2]) if (Math.abs(r - rFromMult(snap)) < 7) m = snap;
+      if (m !== this.mult && (m === 1 || m === Math.SQRT2)) this.app.audio.click(1.4);
+      if (r > KNOB_MAX) { this.pull.setLength(KNOB_MAX); r = KNOB_MAX; }
+      this.mult = m;
+      // fly away from the finger: the world point under it, mirrored through the object
       const hit = this.planeHit(e, this.P);
-      if (!hit) return;
-      if (this.dragging.kind === 'knob') {
-        // distance from the dial centre on screen sets the speed, snapping to orbit and escape
-        const sp = this.screen(this.P);
-        const r = Math.hypot(e.clientX - sp.x, e.clientY - sp.y);
-        let m = multFromR(r);
-        for (const snap of [1, Math.SQRT2]) if (Math.abs(r - rFromMult(snap)) < 7) m = snap;
-        if (m !== this.mult && (m === 1 || m === Math.SQRT2 || m === 0)) this.app.audio.click(1.4);
-        this.mult = m;
-        this.speed = this.mult * this.circ;
+      if (hit) {
+        const d = this.P.clone().sub(hit).projectOnPlane(this.normal);
+        if (d.lengthSq() > 0) this.dir.copy(d.normalize());
       }
-      if (this.dragging.kind === 'heading' || this.dragging.kind === 'knob') {
-        const d = hit.sub(this.P).projectOnPlane(this.normal);
-        if (d.lengthSq() > 0) {
-          const before = Math.round(this.headingDeg());
-          this.dir.copy(d.normalize());
-          if (Math.round(this.headingDeg() / 5) !== Math.round(before / 5)) this.app.audio.click(1.1);
-          if (this.mode === 'heading') this.refresh();
-        }
-      } else {
-        this.P.copy(hit);
-        this.orbitDefaults(false);
-        this.refresh();
-      }
-    };
-    const end = (e) => {
+      this.speed = this.mult * this.circ;
+      this.refresh();
+    });
+    const release = (e) => {
       if (!this.dragging || e.pointerId !== this.dragging.id) return;
-      root.classList.remove(`drag-${this.dragging.kind}`);
       this.dragging = null;
+      root.classList.remove('pulling');
       this.app.controls.enabled = true;
-      this.refresh(true);
+      const pulled = this.pull?.length() || 0;
+      this.pull = null;
+      if (e.type === 'pointerup' && pulled > KNOB_MIN) {
+        root.classList.add('snap');
+        setTimeout(() => root.classList.remove('snap'), 250);
+        this.fire();
+      } else this.refresh(true);
     };
-    for (const el of [this.dialBand, this.dialKnob, this.dialCenter]) {
-      el.addEventListener('pointermove', move);
-      el.addEventListener('pointerup', end);
-      el.addEventListener('pointercancel', end);
-    }
+    this.grab.addEventListener('pointerup', release);
+    this.grab.addEventListener('pointercancel', release);
   }
-
-  headingDeg() { return THREE.MathUtils.radToDeg(Math.atan2(-this.dir.z, this.dir.x)); }
 
   updateDial() {
     const { root, c } = this.dial;
@@ -179,24 +161,21 @@ export class Aim {
     root.hidden = !show;
     if (!show) return;
     const sp = this.screen(this.P);
-    const cam = this.app.camera;
-    const inFront = this.P.clone().project(cam).z < 1;
+    const inFront = this.P.clone().project(this.app.camera).z < 1;
     root.style.visibility = inFront ? '' : 'hidden';
     root.style.transform = `translate(${sp.x - c}px, ${sp.y - c}px)`;
-    // on-screen angle of the world heading
-    const d = cam.position.distanceTo(this.P);
-    const tip = this.screen(this.P.clone().addScaledVector(this.velocityDir(), d * 0.05));
-    const a = Math.atan2(tip.y - sp.y, tip.x - sp.x);
-    const rk = rFromMult(Math.min(this.mult, multFromR(KNOB_MAX)));
-    const kx = c + Math.cos(a) * rk, ky = c + Math.sin(a) * rk;
-    this.dialArrow.setAttribute('x2', kx);
-    this.dialArrow.setAttribute('y2', ky);
-    this.dialKnob.setAttribute('transform', `translate(${kx} ${ky}) rotate(${THREE.MathUtils.radToDeg(a)})`);
-    // speed readout just past the knob
-    this.dialSpeed.setAttribute('x', c + Math.cos(a) * (rk + 34));
-    this.dialSpeed.setAttribute('y', c + Math.sin(a) * (rk + 34) + 4);
-    this.dialSpeed.textContent = `${this.speed.toFixed(this.speed < 10 ? 1 : 0)} km/s`;
-    this.dialHint.textContent = this.mode === 'heading' ? 'Drag the ring to aim · drag the centre to move' : '';
+    const px = c + (this.pull?.x || 0), py = c + (this.pull?.y || 0);
+    for (const b of [this.bandL, this.bandR]) { b.setAttribute('x2', px); b.setAttribute('y2', py); }
+    this.pouch.setAttribute('cx', px);
+    this.pouch.setAttribute('cy', py);
+    const pulling = !!this.pull && this.pull.length() > KNOB_MIN;
+    // launch arrow points opposite the pull
+    const ax = c - (this.pull?.x || 0) * 0.9, ay = c - (this.pull?.y || 0) * 0.9;
+    this.dialArrow.setAttribute('x2', pulling ? ax : c);
+    this.dialArrow.setAttribute('y2', pulling ? ay : c);
+    this.dialSpeed.textContent = pulling ? `${this.speed.toFixed(this.speed < 10 ? 1 : 0)} km/s` : '';
+    this.dialSpeed.setAttribute('x', ax);
+    this.dialSpeed.setAttribute('y', ay - 10);
   }
 
   // ---------------------------------------------------------- flow
@@ -207,7 +186,6 @@ export class Aim {
     this.path.visible = false;
     this.impact.visible = false;
     this.impactLabel.visible = false;
-    this.cue.visible = this.cueTip.visible = false;
     this.ghost.visible = false;
     this.prediction = null;
     this.ghost.material.color.set(spec.kind === 'blackhole' ? '#ff9a4a' : spec.color);
@@ -242,8 +220,10 @@ export class Aim {
 
   setStep(step) {
     this.mode = step;
+    this.keyAim = false;
+    this.pull = null;
     this.ghost.visible = step !== 'place';
-    if (step === 'place') { this.path.visible = false; this.impact.visible = false; this.impactLabel.visible = false; this.cue.visible = this.cueTip.visible = false; }
+    if (step === 'place' || step === 'heading') { this.path.visible = false; this.impact.visible = false; this.impactLabel.visible = false; }
     this.refresh(true);
   }
 
@@ -298,6 +278,7 @@ export class Aim {
   }
 
   nudge(kind, amount) {
+    this.keyAim = true;
     if (kind === 'turn') this.dir.applyAxisAngle(this.normal, THREE.MathUtils.degToRad(amount));
     if (kind === 'speed') { this.mult = Math.max(0.02, this.mult * (1 + amount)); this.speed = this.mult * this.circ; }
     if (kind === 'elev') this.elev = THREE.MathUtils.clamp(this.elev + THREE.MathUtils.degToRad(amount), -1.4, 1.4);
@@ -376,7 +357,11 @@ export class Aim {
 
   fire() {
     const st = this.state();
-    const shot = { spec: this.spec, pos: { x: st.x, y: st.y, z: st.z }, dir: this.dir.clone(), elev: this.elev, speed: this.speed };
+    if (!this.prediction) this.predict();
+    const pred = this.prediction, end = pred?.pts.length ? pred.pts[pred.pts.length - 1][3] : null;
+    const shot = { spec: this.spec, pos: { x: st.x, y: st.y, z: st.z }, dir: this.dir.clone(), elev: this.elev, speed: this.speed,
+      // what the ghost path predicted, so the follow-up camera can pace itself
+      hitIn: pred?.hit ? end : null, hitId: pred?.hit?.id || null, years: end, host: st.host?.id };
     this.cancel();
     this.app.onLaunch(this.spec, st, shot);
   }
@@ -392,24 +377,12 @@ export class Aim {
     if (!this.mode) return;
     this.updateGrid();
     if (this.mode === 'place') { this.updateDial(); this.app.onAimChange?.(); return; }
-    const cam = this.app.camera;
     this.ghost.position.copy(this.P);
-    const d = cam.position.distanceTo(this.P);
-    const worldPerPx = (2 * d * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2))) / this.app.renderer.domElement.clientHeight;
-    // pool-cue stick behind the object, longer for faster shots
-    const back = this.velocityDir().negate();
-    const len = (30 + Math.min(this.speed, 300) * 0.9) * worldPerPx;
-    const w = worldPerPx * 3;
-    const start = this.P.clone().addScaledVector(back, worldPerPx * 26);
-    this.cue.visible = this.cueTip.visible = this.mode === 'heading' && this.speed > 0;
-    this.cue.position.copy(start).addScaledVector(back, len / 2 + w * 3);
-    this.cue.scale.set(w, len, w);
-    this.cue.quaternion.setFromUnitVectors(UP, back.clone().negate());
-    this.cueTip.position.copy(start).addScaledVector(back, w * 1.5);
-    this.cueTip.scale.set(w * 0.7, w * 3, w * 0.7);
-    this.cueTip.quaternion.copy(this.cue.quaternion);
     const now = performance.now();
-    if (force || now - this.lastPredict > 40) { this.lastPredict = now; this.predict(); }
+    // the ghost path appears while you pull (or tune the shot from the keyboard)
+    const aiming = (this.pull && this.pull.length() > KNOB_MIN) || this.keyAim;
+    if (!aiming) { this.path.visible = this.impact.visible = this.impactLabel.visible = false; this.prediction = null; }
+    else if (force || now - this.lastPredict > 40) { this.lastPredict = now; this.predict(); }
     this.updateDial();
     this.app.onAimChange?.();
   }
@@ -469,6 +442,7 @@ export class Aim {
       mode: this.mode,
       speed: this.speed,
       mult: this.mult,
+      aiming: !!this.prediction,
       elev: THREE.MathUtils.radToDeg(this.elev),
       host: host?.name,
       hit: this.prediction?.hit?.name,

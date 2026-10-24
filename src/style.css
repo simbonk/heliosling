@@ -123,7 +123,10 @@ body[data-view='galaxy'] #log { display: none; }
 /* ---------------- replay */
 #replaybar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-color: rgba(255, 179, 71, 0.5); font-size: 13px; }
 #replaybar[hidden] { display: none; }
-#replaybar button { height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+#replaybar .rb-btns { display: flex; gap: 6px; flex: none; }
+#replaybar button { height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line-strong); background: rgba(255, 255, 255, 0.06); color: var(--text); font-weight: 600; }
+#replaybar button.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+body.flying .arsenal, body.reeling .arsenal, body.flying #btn-rewind, body.reeling #btn-rewind, body.reeling #btn-back, body.reeling #info, body.flying #info { display: none !important; }
 body.replaying .arsenal, body.replaying #btn-rewind, body.replaying #btn-back, body.replaying #btn-reset, body.replaying #aimbar, body.replaying #info, body.replaying #btn-missions { display: none !important; }
 
 /* ---------------- mission hud */
@@ -209,20 +212,21 @@ body.aiming #info { display: none; }
 .aim-dial svg { overflow: visible; }
 .dial-track { fill: none; stroke: rgba(111, 211, 255, 0.35); stroke-width: 2; }
 .dial-tick { stroke: rgba(111, 211, 255, 0.45); stroke-width: 1.5; }
-.dial-band { fill: none; stroke: rgba(111, 211, 255, 0.07); stroke-width: 52; pointer-events: stroke; cursor: grab; }
 .dial-arrow { stroke: var(--accent); stroke-width: 2.5; stroke-dasharray: 4 4; }
-.dial-knob { pointer-events: all; cursor: grab; }
-.dial-knob circle { fill: var(--accent); stroke: #fff; stroke-width: 2; filter: drop-shadow(0 0 8px rgba(111, 211, 255, 0.8)); }
-.dial-knob path { fill: var(--accent-ink); }
-.dial-center { fill: rgba(255, 255, 255, 0.06); stroke: rgba(255, 255, 255, 0.55); stroke-width: 1.5; stroke-dasharray: 3 3; pointer-events: all; cursor: move; }
-.aim-dial.drag-heading .dial-band { stroke: rgba(111, 211, 255, 0.16); }
-.aim-dial.drag-move .dial-center { fill: rgba(111, 211, 255, 0.2); }
 .dial-hint { display: none; }
+.sling-fork { fill: none; stroke: #c89a64; stroke-width: 7; stroke-linecap: round; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.6)); }
+.sling-band { stroke: #d9573b; stroke-width: 4; stroke-linecap: round; }
+.aim-dial.pulling .sling-band { stroke-width: 3; }
+.sling-pouch { fill: rgba(217, 87, 59, 0.18); stroke: #d9573b; stroke-width: 2; }
+.sling-grab { fill: transparent; pointer-events: all; cursor: grab; touch-action: none; }
+.aim-dial.pulling .sling-grab { cursor: grabbing; }
+.sling-guides { opacity: 0.35; transition: opacity 0.2s; }
+.aim-dial.pulling .sling-guides { opacity: 1; }
+.aim-dial.snap .sling-band { transition: all 0.15s ease-out; }
 .dial-escape { fill: none; stroke: rgba(255, 179, 71, 0.45); stroke-width: 1.5; stroke-dasharray: 5 5; }
 .dial-text { fill: rgba(111, 211, 255, 0.8); font: 600 9.5px var(--mono); text-anchor: middle; letter-spacing: 0.08em; text-transform: uppercase; }
 .dial-text.esc { fill: rgba(255, 179, 71, 0.85); }
 .dial-speed { fill: #fff; font: 600 12px var(--mono); text-anchor: middle; paint-order: stroke; stroke: rgba(2, 3, 10, 0.85); stroke-width: 3px; }
-.aim-dial.drag-knob .dial-knob circle { fill: #fff; }
 #aimbar[hidden] { display: none; }
 .wiz-steps { display: flex; gap: 6px; font-size: 11.5px; color: var(--muted); }
 .wiz-steps span { display: flex; align-items: center; gap: 5px; flex: 1; padding-bottom: 6px; border-bottom: 2px solid var(--line); }

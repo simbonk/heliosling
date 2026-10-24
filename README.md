@@ -21,10 +21,11 @@ Import the repo in Vercel. It detects Vite automatically (`vercel.json` pins `np
 - **Solar**: Sun-centred (or inertial, in settings). Contrails show the familiar ellipses.
 - **Milky Way**: the Sun's 230-million-year lap around Sagittarius A*, with Earth's great extinctions pinned where the Sun was when they happened.
 
-**Launching things** (a two-step wizard built for touch)
+**Launching things** (Angry Birds style, built for touch)
 1. Pick an object from the bar (asteroid, Halley's Comet, rogue Moon/Earth, Super-Jupiter, brown dwarf, red dwarf, Sun twin, neutron star, black hole).
 2. **Place**: tap exactly where it should start.
-3. **Aim & launch**: drag the knob around the ring to point it, and outward or inward to set the speed. With the knob on the ring the object goes into a circular orbit around whatever dominates that spot. The dashed ring is escape speed, and the centre stops it dead; the knob snaps to each. Drag the centre to nudge the object. A ghost trajectory shows where it will go and flags impacts. Optional tilt out of the planets' plane. The view backs out so the ring is never hidden behind the controls.
+3. **Pull & let go**: a slingshot appears around it. Pull back and release; it flies the opposite way, faster the further you pull. The solid ring marks the pull for a circular orbit around whatever dominates that spot, the dashed ring escape speed, and the pull snaps to each. A ghost trajectory shows where it will go while you pull. Optional tilt out of the planets' plane.
+4. **Watch**: the camera chases the shot live for up to ~10 s (or until it hits something), then the flight re-runs three times as cinematic replays: chase cam, side view, top-down. Skip any time, or turn them off in the menu.
 
 **Rewind** winds time back about six seconds of play per press (contrails shrink as it goes), then plays forward again. **Undo** returns to the moment before your last launch with the aim intact. **Reset** (top bar) offers to save the run as JSON first. Tapping a view tab (even the current one) returns to that view's home camera and default time speed. **Centred on ▾** keeps the camera on the Sun, Earth, or anything else, with tilted, top-down, and ride-along angles.
 
