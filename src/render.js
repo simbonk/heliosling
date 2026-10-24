@@ -575,6 +575,7 @@ export class Effects {
     this.scene = scene;
     this.items = [];
     this.maxParticles = maxParticles;
+    this.hq = false; // replays: more, finer debris that lingers longer
   }
 
   sprite(color, opacity = 1) {
@@ -598,7 +599,7 @@ export class Effects {
     const contact = n.clone().multiplyScalar(R);
 
     const count = Math.round(THREE.MathUtils.clamp(70 + (lg - 18) * 28, 50, this.maxParticles) * (kind === 'giant' ? 1.6 : 1));
-    const N = Math.min(count, this.maxParticles);
+    const N = this.hq ? Math.min(Math.round(count * 3), this.maxParticles * 3) : Math.min(count, this.maxParticles);
     const pos = new Float32Array(N * 3), col = new Float32Array(N * 3), vel = new Float32Array(N * 3), heatT = new Float32Array(N), stuck = new Uint8Array(N);
     // surface gravity chosen so escape speed = 1.6 R per second of animation
     const GM = 1.28 * R * R * R;
@@ -641,7 +642,7 @@ export class Effects {
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     const tint = new THREE.Color(kind === 'blackhole' ? '#bcd8ff' : kind === 'star' || kind === 'puff' ? color : '#ffffff');
-    const debris = new THREE.Points(g, new THREE.PointsMaterial({ map: glow, size: R * 0.22 * Math.sqrt(boost), vertexColors: true, color: tint, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    const debris = new THREE.Points(g, new THREE.PointsMaterial({ map: glow, size: R * (this.hq ? 0.15 : 0.22) * Math.sqrt(boost), vertexColors: true, color: tint, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
     debris.frustumCulled = false;
     group.add(debris);
 
@@ -659,7 +660,7 @@ export class Effects {
       ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
       group.add(ring);
     }
-    const life = kind === 'giant' ? 9 : kind === 'blackhole' ? 3.5 : kind === 'star' ? 2.6 : 4 + boost;
+    const life = (kind === 'giant' ? 9 : kind === 'blackhole' ? 3.5 : kind === 'star' ? 2.6 : 4 + boost) * (this.hq ? 1.4 : 1);
     this.items.push({ group, debris, flash, scar, ring, pos, col, vel, heatT, stuck, N, R, GM, kind, boost, age: 0, life, followId });
   }
 

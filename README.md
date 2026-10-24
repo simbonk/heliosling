@@ -32,7 +32,7 @@ Import the repo in Vercel. It detects Vite automatically (`vercel.json` pins `np
 - 7 challenges with 1–3 stars (fewer shots, more stars), including a killer asteroid you must deflect and a red dwarf heist to steal Neptune.
 - An Earth badge shows its temperature and whether it is still in the habitable zone (the zone itself can be drawn as a band from Layers).
 - 15 achievements and a live system stability index.
-- An event log (top right) collects everything that happens instead of popping messages over the action. Every collision in it has a **Replay** button that re-runs the last few seconds before it with a close-up camera, then returns to the present.
+- An event log (top right) collects everything that happens instead of popping messages over the action. Every collision in it has a **Replay** button that re-runs the last few seconds before it as a cut scene: full resolution, stronger glow, denser debris, letterbox bars with the HUD hidden, a side-on camera that slowly circles in, and slow motion into the moment of impact. Then it returns to the present.
 - Auto slow-mo when a launched object has a close call, camera shake on impacts, procedural WebAudio sound (drone that pitches with time warp, cue ratchet, impact boom).
 
 **Visuals** (all procedural, no image assets)

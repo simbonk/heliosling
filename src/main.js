@@ -354,7 +354,7 @@ function loadSim(data, { keepMission = false } = {}) {
 sim.on((ev) => {
   if (S.replay) {
     // re-running the past: show the effects, but don't log, score or record anything
-    if (ev.kind === 'impact' && ev.a === S.replay.r.a && ev.b === S.replay.r.b && !S.replay.endAt) S.replay.endAt = performance.now() + 3000;
+    if (ev.kind === 'impact' && ev.a === S.replay.r.a && ev.b === S.replay.r.b && !S.replay.endAt) S.replay.endAt = performance.now() + 4500;
     if (ev.kind !== 'impact') return;
   } else {
     if (ev.kind === 'impact') {
@@ -455,6 +455,30 @@ function replayFor(ev) {
   return { from, tEvent: sim.t, a: ev.a, b: ev.b, title: `${ev.aName} and ${ev.bName}` };
 }
 
+// Replays render like a cut scene: full resolution, stronger glow, denser debris, no HUD,
+// letterbox bars, a slowly circling camera and slow motion into the moment of impact.
+function cinema(on) {
+  if (on === !!S.cinema) return;
+  if (on) {
+    S.cinema = { pr: renderer.getPixelRatio(), bloom: [bloom.strength, bloom.radius, bloom.threshold] };
+    const pr = Math.min(devicePixelRatio, 2);
+    renderer.setPixelRatio(pr);
+    composer.setPixelRatio?.(pr);
+    bloom.strength = 1.15; bloom.radius = 0.75;
+    bloom.enabled = true;
+    effects.hq = true;
+  } else {
+    const c = S.cinema;
+    renderer.setPixelRatio(c.pr);
+    composer.setPixelRatio?.(c.pr);
+    [bloom.strength, bloom.radius, bloom.threshold] = c.bloom;
+    effects.hq = false;
+    S.cinema = null;
+  }
+  composer.setSize(innerWidth, innerHeight);
+  document.body.classList.toggle('cinema', on);
+}
+
 function startReplay(r) {
   if (!r || S.replay) return;
   if (S.view === 'galaxy') setView('helix');
@@ -464,15 +488,23 @@ function startReplay(r) {
   S.replay = { r, present: sim.serialize(), speed: S.speed, playing: S.playing, selected: S.selected, mode: rig.mode, off: camera.position.clone().sub(controls.target), endAt: 0 };
   sim.load({ t: r.from.t, bodies: r.from.bodies });
   resetVisuals();
-  // a few real seconds to the impact; slow-mo near the close approach stretches it further
-  S.speed = Math.max(1e-5, (r.tEvent - r.from.t) / 4);
+  cinema(true);
+  // a few real seconds to the impact; tickReplay eases into slow motion as it gets close
+  S.replay.base = Math.max(1e-5, (r.tEvent - r.from.t) / 4);
+  S.speed = S.replay.base;
   const a = sim.get(r.a), b = sim.get(r.b);
   S.selected = r.a;
   setCamMode('follow');
   if (a && b) {
-    const gap = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
-    const d = THREE.MathUtils.clamp(gap * 1.6, sim.radius(a) * 8, sim.radius(a) * 60);
-    rig.offsetGoal = new THREE.Vector3(-0.55, 0.45, 0.7).normalize().multiplyScalar(d);
+    // look from the side of the approach, so the impactor crosses the frame into the target
+    const ab = new THREE.Vector3(b.x - a.x, b.y - a.y, b.z - a.z);
+    const gap = ab.length();
+    ab.normalize();
+    const side = ab.clone().cross(new THREE.Vector3(0, 1, 0));
+    if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
+    const dir = side.normalize().add(new THREE.Vector3(0, 0.45, 0)).addScaledVector(ab, -0.25).normalize();
+    const Ra = sim.radius(a);
+    rig.offsetGoal = dir.multiplyScalar(THREE.MathUtils.clamp(gap * 1.8 + Ra * 2, Ra * 7, Ra * 60));
   }
   document.body.classList.add('replaying');
   const bar = $('#replaybar');
@@ -489,6 +521,7 @@ function endReplay() {
   const R = S.replay;
   if (!R) return;
   S.replay = null;
+  cinema(false);
   sim.load(R.present);
   if (!settings.belt && sim.belt) sim.initBelt(0);
   resetVisuals();
@@ -508,6 +541,17 @@ function tickReplay(now) {
   const R = S.replay;
   if (!R) return;
   const span = R.r.tEvent - R.r.from.t;
+  // slow motion: full speed far out, down to ~1/8 just before contact, then a slow aftermath
+  const left = (R.r.tEvent - sim.t) / span;
+  const f = R.endAt ? 0.3 : THREE.MathUtils.clamp(left / 0.35, 0.12, 1);
+  S.speed = R.base * f;
+  // the camera circles slowly and creeps in, unless it is still gliding to its start
+  if (!rig.offsetGoal) {
+    const off = camera.position.clone().sub(controls.target);
+    off.applyAxisAngle(new THREE.Vector3(0, 1, 0), 0.0025 * (R.endAt ? 0.6 : 1));
+    if (!R.endAt) off.multiplyScalar(0.9992);
+    camera.position.copy(controls.target).add(off);
+  }
   // the impact replayed (or the re-run drifted and missed): linger a moment, then come back
   if (!R.endAt && sim.t > R.r.tEvent + span * 0.5 + 1e-4) R.endAt = now + 1500;
   if (R.endAt && now > R.endAt) endReplay();
@@ -1359,13 +1403,13 @@ function adaptQuality(now, ms) {
 
 function frameLoop(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
-  if (document.visibilityState === 'visible' && now - last < 500) adaptQuality(now, now - last);
+  if (document.visibilityState === 'visible' && now - last < 500 && !S.cinema) adaptQuality(now, now - last);
   last = now;
   let dtSim = 0;
   if (S.view !== 'galaxy') {
     if (S.rewinding) tickRewind(dt);
     else if (S.playing && !aim.active) {
-      const target = settings.slowmo ? closeCallFactor() : 1;
+      const target = settings.slowmo && !S.replay ? closeCallFactor() : 1; // replays pace themselves
       S.slow += (target - S.slow) * (target < S.slow ? 0.5 : 0.04);
       const span = S.speed * dt * S.slow;
       sim.sampleDt = Math.min(0.05, Math.max(0.002, S.speed / 90));
@@ -1380,7 +1424,7 @@ function frameLoop(now) {
         if (r) missionResult(r);
       }
     } else { S.slow = 1; S.dilated = false; }
-    views.showLabels = settings.labels;
+    views.showLabels = settings.labels && !S.cinema;
     views.update(toRender, camera, S.selected, dt, { h: renderer.domElement.clientHeight });
     views.declutter(camera, S.selected, { w: innerWidth, h: innerHeight });
     trails.visible = settings.trails;
@@ -1400,8 +1444,8 @@ function frameLoop(now) {
     effects.update(dt, (id, out) => { const b = sim.get(id); if (!b) return false; toRender(b, out); return true; });
     aim.update(now / 1000);
     const camDist = camera.position.distanceTo(controls.target);
-    grid.visible = settings.grid;
-    if (settings.grid) grid.update(sim.bodies, toRender, ref, Math.max(4, Math.min(80, camDist * 1.4)));
+    grid.visible = settings.grid && !S.cinema;
+    if (grid.visible) grid.update(sim.bodies, toRender, ref, Math.max(4, Math.min(80, camDist * 1.4)));
     updateHZ();
     const holes = settings.lensing ? sim.bodies.filter((b) => b.alive && b.kind === 'blackhole') : [];
     lens.update(holes, camera, sim, toRender, { w: innerWidth, h: innerHeight });
@@ -1422,7 +1466,7 @@ function frameLoop(now) {
   audio.drone(S.view === 'galaxy' ? S.galaxySpeed / 12 : S.speed * S.slow, isPlaying() && !aim.active);
   if (now - teleT > 120) { teleT = now; renderTelemetry(); if (S.mission) renderMissionHud(); }
   if (now - infoT > 500 && S.selected) { infoT = now; renderInfo(); }
-  bloom.enabled = settings.bloom;
+  bloom.enabled = settings.bloom || !!S.cinema;
   composer.render();
   labelRenderer.render(scene, camera);
   requestAnimationFrame(frameLoop);

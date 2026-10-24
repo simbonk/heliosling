@@ -384,3 +384,15 @@ body.dropping #drop-hint { display: grid; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* ---------------- cinematic replay */
+body.cinema .topbar, body.cinema #telemetry, body.cinema #log, body.cinema #rail, body.cinema #mission-hud, body.cinema .timebar, body.cinema #toasts { opacity: 0; pointer-events: none; transition: opacity 0.4s; }
+body.cinema::before, body.cinema::after { content: ''; position: fixed; left: 0; right: 0; height: 9vh; background: #000; z-index: 14; pointer-events: none; animation: barIn 0.6s ease-out; }
+body.cinema::before { top: 0; }
+body.cinema::after { bottom: 0; }
+@keyframes barIn { from { height: 0; } }
+body.cinema #stage::after { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 1; background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.55) 100%); }
+body.cinema .label-layer { opacity: 0; transition: opacity 0.4s; }
+body.cinema #replaybar { background: rgba(0, 0, 0, 0.55); border-color: rgba(255, 179, 71, 0.35); }
+body.cinema .dock { z-index: 16; }
+
