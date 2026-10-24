@@ -24,6 +24,7 @@
         <button data-view="galaxy">Milky Way</button>
       </nav>
       <div class="top-actions">
+        <button id="btn-reset" class="icon" aria-label="Reset the solar system" title="Reset to today's solar system"><svg viewBox="0 0 24 24"><path d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg></button>
         <button id="btn-missions" class="pill" aria-label="Challenges">🎯<span>Challenges</span></button>
         <button id="btn-sound" class="icon" aria-label="Sound">🔇</button>
         <button id="btn-menu" class="icon" aria-label="Menu">☰</button>
@@ -43,7 +44,7 @@
       <div class="timebar hud">
         <button id="btn-play" class="tb play" aria-label="Pause"></button>
         <button id="btn-rewind" class="tb labelled" aria-label="Undo last launch" title="Undo last launch (R)"><svg viewBox="0 0 24 24"><path d="M12.5 8c-2.65 0-5.05 1-6.9 2.6L2 7v9h9l-3.62-3.62A7.95 7.95 0 0 1 12.5 10.5c3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/></svg><span>Undo</span></button>
-        <button id="btn-reset" class="tb labelled" aria-label="Reset the solar system" title="Reset"><svg viewBox="0 0 24 24"><path d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg><span>Reset</span></button>
+        <button id="btn-back" class="tb labelled" aria-label="Rewind time" title="Rewind time, then play forward (B)"><svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6 8.5 6V6l-8.5 6z"/></svg><span>Rewind</span></button>
         <input id="speed" type="range" min="0" max="1" step="0.001" aria-label="Simulation speed" />
         <span id="speed-label" class="mono"></span>
       </div>

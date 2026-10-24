@@ -59,6 +59,13 @@ button:disabled { opacity: 0.35; cursor: default; }
 .logo { width: 22px; height: 22px; border-radius: 50%; background: radial-gradient(circle at 40% 40%, #fff3c4, #ffb347 45%, rgba(255, 122, 26, 0) 72%); box-shadow: 0 0 18px #ff9a3a88; position: relative; }
 .logo::after { content: ''; position: absolute; inset: 7px -4px; border: 1.5px solid var(--accent); border-radius: 50%; transform: rotate(-25deg); }
 .top-actions { grid-area: actions; justify-self: end; display: flex; gap: 6px; }
+.icon svg { width: 19px; height: 19px; fill: var(--text); }
+/* phones: sound lives in the menu so the top bar fits on one row */
+#btn-sound { display: none; }
+body.rewinding #stage { filter: saturate(0.6) hue-rotate(-12deg); }
+body.rewinding .timebar { border-color: rgba(255, 179, 71, 0.6); }
+#btn-back.on { background: rgba(255, 179, 71, 0.2); }
+#btn-back.on svg { fill: #ffb347; }
 .icon, .pill {
   height: 38px; min-width: 38px; border-radius: 12px; border: 1px solid var(--line); background: var(--glass);
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); font-size: 16px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 9px;
@@ -117,7 +124,7 @@ body[data-view='galaxy'] #log { display: none; }
 #replaybar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-color: rgba(255, 179, 71, 0.5); font-size: 13px; }
 #replaybar[hidden] { display: none; }
 #replaybar button { height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); font-weight: 700; }
-body.replaying .arsenal, body.replaying #btn-rewind, body.replaying #btn-reset, body.replaying #aimbar, body.replaying #info, body.replaying #btn-missions { display: none !important; }
+body.replaying .arsenal, body.replaying #btn-rewind, body.replaying #btn-back, body.replaying #btn-reset, body.replaying #aimbar, body.replaying #info, body.replaying #btn-missions { display: none !important; }
 
 /* ---------------- mission hud */
 #mission-hud {
@@ -344,6 +351,7 @@ body.dropping #drop-hint { display: grid; }
 
 /* ---------------- wider screens */
 @media (min-width: 760px) {
+  #btn-sound { display: grid; }
   .seg button { padding: 7px 14px; font-size: 13px; }
   .topbar { grid-template-columns: auto 1fr auto; grid-template-areas: 'brand views actions'; left: 14px; right: 14px; }
   .pill span { display: inline; }

@@ -277,6 +277,7 @@ export class BodyViews {
         b._dirty = false;
       }
       if (!v) v = this.create(b);
+      v.body = b; // bodies are replaced when time is rewound
     }
     for (const id of [...this.views.keys()]) if (!alive.has(id)) this.remove(id);
 
@@ -419,6 +420,15 @@ export class Trails {
     this.count = 0;
     this.times = new Float64Array(TRAIL_CAP);
     this.ref = new Float64Array(TRAIL_CAP * 3);
+  }
+
+  // Wind the shared sample clock back: trails shrink to where they were at that moment.
+  rewindTo(count) {
+    this.count = Math.min(this.count, count);
+    for (const [id, t] of this.trails) {
+      if (t.start >= this.count) { t.line.removeFromParent(); t.line.geometry.dispose(); this.trails.delete(id); continue; }
+      if (t.dead && t.dead > this.count) t.dead = 0;
+    }
   }
 
   sample(refBody) {

@@ -331,7 +331,9 @@ function freshUniverse() {
 }
 
 function resetVisuals() {
-  if (!S.replay) snaps.length = 0;
+  if (!S.replay) { snaps.length = 0; hist.length = 0; }
+  S.rewinding = null;
+  document.body.classList.remove('rewinding');
   views.clear();
   trails.reset();
   sim.nextSample = sim.t;
@@ -724,6 +726,8 @@ function homeCamera(v = S.view) {
 function setView(v) {
   if (S.replay) endReplay();
   if (aim.active) aim.cancel();
+  S.rewinding = null;
+  document.body.classList.remove('rewinding');
   S.view = v;
   const solar = v !== 'galaxy';
   views.group.visible = trails.group.visible = solar;
@@ -776,11 +780,63 @@ function updateDock() {
   $('#speed-label').textContent = speedText();
   $('#btn-rewind').disabled = !S.lastShot || S.view === 'galaxy';
   $('#btn-reset').disabled = S.view === 'galaxy';
+  $('#btn-back').disabled = S.view === 'galaxy' || hist.length < 2;
 }
 
 $('#btn-play').onclick = () => { audio.ensure(); if (aim.active) aim.cancel(); setPlaying(!isPlaying()); };
 $('#btn-rewind').onclick = () => resetToShot();
 $('#btn-reset').onclick = () => resetFlow();
+$('#btn-back').onclick = () => rewind();
+
+// ---------------------------------------------------------------- rewind time
+// Every quarter second of play we keep a full in-memory snapshot (about 30 s worth). Rewind
+// animates back through them, contrails shrinking as it goes, then plays forward from there.
+// Each extra press while rewinding goes further back.
+const hist = [];
+let histT = 0;
+const REWIND_STEP = 24; // snapshots per press: ~6 s of play
+function recordHist(now) {
+  if (now - histT < 250) return;
+  histT = now;
+  hist.push({ ...sim.snapshot(), trailCount: trails.count });
+  if (hist.length > 120) hist.shift();
+  if (hist.length === 2) updateDock();
+}
+function rewind() {
+  if (S.view === 'galaxy' || S.replay) return;
+  if (hist.length < 2) return toast('Nothing to rewind yet. Let time run for a moment.');
+  if (aim.active) aim.cancel();
+  audio.click(0.6);
+  const R = S.rewinding || (S.rewinding = { at: hist.length - 1, target: hist.length - 1, wasPlaying: S.playing, from: sim.t });
+  R.target = Math.max(0, R.target - REWIND_STEP);
+  document.body.classList.add('rewinding');
+  $('#btn-back').classList.add('on');
+}
+function tickRewind(dt) {
+  const R = S.rewinding;
+  if (!R) return;
+  // ease back: faster when far from the target, about a second per press
+  const speed = Math.max(18, (R.at - R.target) * 2.2);
+  R.pos = (R.pos ?? R.at) - speed * dt;
+  const i = Math.max(R.target, Math.round(R.pos));
+  if (i !== R.at) {
+    R.at = i;
+    const h = hist[i];
+    sim.restore(h);
+    trails.rewindTo(h.trailCount);
+    if (S.selected && !sim.get(S.selected)) S.selected = null;
+  }
+  if (R.at <= R.target) {
+    hist.length = R.target + 1; // the old future is gone; it gets re-run from here
+    S.rewinding = null;
+    document.body.classList.remove('rewinding');
+    $('#btn-back').classList.remove('on');
+    pushLog({ icon: '⏪', text: `Rewound ${fmtYears(R.from - sim.t)} to year ${(START_YEAR + sim.t).toFixed(2)}`, kind: 'note' });
+    setPlaying(true);
+    renderInfo();
+  }
+}
+const fmtYears = (y) => (y < 1 / 12 ? `${(y * 365.25).toFixed(0)} days` : y < 1 ? `${(y * 12).toFixed(1)} months` : `${y.toFixed(1)} years`);
 $('#speed').oninput = (e) => {
   const v = speedFromSlider(+e.target.value);
   if (S.view === 'galaxy') S.galaxySpeed = v; else S.speed = v;
@@ -1133,6 +1189,7 @@ function openMenu() {
       <button data-m="log">📜 Event log</button>
       <button data-m="ach">🏆 Achievements · ${S.achievements.size}/${ACHIEVEMENTS.length}</button>
       <button data-m="help">❔ How it works</button>
+      <button data-m="sound">${audio.muted ? '🔇 Sound off' : '🔊 Sound on'}</button>
     </div>
     <h4>Advanced settings</h4>
     <label class="row">Solar view frame
@@ -1151,6 +1208,7 @@ function openMenu() {
     box.querySelector('[data-m=new]').onclick = () => { closeModal(); resetFlow(); };
     box.querySelector('[data-m=log]').onclick = openChronicle;
     box.querySelector('[data-m=help]').onclick = openHelp;
+    box.querySelector('[data-m=sound]').onclick = (e) => { audio.ensure(); audio.setMuted(!audio.muted); updateSound(); e.currentTarget.textContent = audio.muted ? '🔇 Sound off' : '🔊 Sound on'; };
     box.querySelector('[data-m=ach]').onclick = openTrophies;
     const fr = box.querySelector('#set-frame');
     fr.value = settings.frame;
@@ -1181,7 +1239,7 @@ function openHelp() {
         <li><b>Pick</b> an object from the bar at the bottom.</li>
         <li><b>Place</b> it: tap exactly where it should start.</li>
         <li><b>Aim</b>: drag the knob around the ring to point it, and outward or inward to change speed. On the ring is a circular orbit, the dashed ring is escape speed, the centre stops it dead. The dotted line shows where it will go. Then Launch.</li>
-        <li><b>Undo</b> takes you back to the moment before, with the same aim. Collisions in the <b>Event log</b> (top right) can be replayed close up.</li>
+        <li><b>Rewind</b> winds time back a few seconds (press again to go further), then plays forward. <b>Undo</b> takes you back to just before your last launch, with the same aim. <b>Reset</b> (top bar) starts over with today's solar system. Collisions in the <b>Event log</b> (top right) can be replayed close up.</li>
       </ol>
       <h4>Look around</h4>
       <p>${MOBILE ? 'One finger orbits, pinch zooms, two fingers pan.' : 'Drag to orbit, scroll to zoom, right-drag to pan.'} Use <b>Centred on ▾</b> (right side) to follow Earth or anything else. Tapping a planet also offers “Center on”.</p>
@@ -1191,7 +1249,7 @@ function openHelp() {
       <p>The green band is the habitable zone. The Earth badge at the top left shows its temperature and whether it is still in the zone.</p>
       ${MOBILE ? '' : `<h4>Keyboard</h4>
       <div class="keys">
-        <span><kbd>Space</kbd> play / pause</span><span><kbd>[</kbd> <kbd>]</kbd> speed</span><span><kbd>R</kbd> undo launch</span>
+        <span><kbd>Space</kbd> play / pause</span><span><kbd>[</kbd> <kbd>]</kbd> speed</span><span><kbd>B</kbd> rewind</span><span><kbd>R</kbd> undo launch</span>
         <span><kbd>F</kbd> fit</span><span><kbd>0</kbd>–<kbd>9</kbd> center on Sun / planets</span><span><kbd>V</kbd> next view</span>
         <span><kbd>H</kbd> habitable zone</span><span><kbd>G</kbd> gravity wells</span><span><kbd>L</kbd> labels</span>
         <span><kbd>←</kbd> <kbd>→</kbd> turn aim</span><span><kbd>↑</kbd> <kbd>↓</kbd> faster / slower</span><span><kbd>Enter</kbd> launch</span>
@@ -1239,6 +1297,7 @@ window.addEventListener('keydown', (e) => {
     else S.speed = Math.min(50, Math.max(0.01, S.speed * f));
     updateDock();
   } else if (k === 'r') resetToShot();
+  else if (k === 'b') rewind();
   else if (k === 'f') fit();
   else if (k === 't') setCamMode('top');
   else if (k === 'c') setCamMode('system');
@@ -1304,7 +1363,8 @@ function frameLoop(now) {
   last = now;
   let dtSim = 0;
   if (S.view !== 'galaxy') {
-    if (S.playing && !aim.active) {
+    if (S.rewinding) tickRewind(dt);
+    else if (S.playing && !aim.active) {
       const target = settings.slowmo ? closeCallFactor() : 1;
       S.slow += (target - S.slow) * (target < S.slow ? 0.5 : 0.04);
       const span = S.speed * dt * S.slow;
@@ -1312,7 +1372,7 @@ function frameLoop(now) {
       dtSim = sim.advance(span, MOBILE ? 350 : 700);
       S.dilated = dtSim < span * 0.8;
       if (sim.t > 1000) unlock('time_lord');
-      if (!S.replay) recordSnap(now);
+      if (!S.replay) { recordSnap(now); recordHist(now); }
       else tickReplay(now);
       if (S.mission && !S.mission.done && !S.replay && now - missionT > 100) {
         missionT = now;

@@ -26,7 +26,7 @@ Import the repo in Vercel. It detects Vite automatically (`vercel.json` pins `np
 2. **Place**: tap exactly where it should start.
 3. **Aim & launch**: drag the knob around the ring to point it, and outward or inward to set the speed. With the knob on the ring the object goes into a circular orbit around whatever dominates that spot. The dashed ring is escape speed, and the centre stops it dead; the knob snaps to each. Drag the centre to nudge the object. A ghost trajectory shows where it will go and flags impacts. Optional tilt out of the planets' plane. The view backs out so the ring is never hidden behind the controls.
 
-**Undo** returns to the moment before your last launch with the aim intact. **Reset** offers to save the run as JSON first. Tapping a view tab (even the current one) returns to that view's home camera and default time speed. **Centred on ▾** keeps the camera on the Sun, Earth, or anything else, with tilted, top-down, and ride-along angles.
+**Rewind** winds time back about six seconds of play per press (contrails shrink as it goes), then plays forward again. **Undo** returns to the moment before your last launch with the aim intact. **Reset** (top bar) offers to save the run as JSON first. Tapping a view tab (even the current one) returns to that view's home camera and default time speed. **Centred on ▾** keeps the camera on the Sun, Earth, or anything else, with tilted, top-down, and ride-along angles.
 
 **Engagement**
 - 7 challenges with 1–3 stars (fewer shots, more stars), including a killer asteroid you must deflect and a red dwarf heist to steal Neptune.

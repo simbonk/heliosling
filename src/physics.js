@@ -446,6 +446,24 @@ export class Sim {
     };
   }
 
+  // In-memory state for rewinding: bodies with all their runtime fields, plus the belt.
+  snapshot() {
+    const bt = this.belt;
+    return {
+      t: this.t, nextSample: this.nextSample,
+      bodies: this.bodies.filter((b) => b.alive).map((b) => ({ ...b })),
+      belt: bt && bt.n ? { n: bt.n, pos: bt.pos.slice(), vel: bt.vel.slice(), alive: bt.alive.slice() } : null,
+    };
+  }
+
+  restore(snap) {
+    this.t = snap.t;
+    this.nextSample = snap.nextSample;
+    this.bodies = snap.bodies.map((b) => ({ ...b }));
+    if (snap.belt) this.belt = { n: snap.belt.n, pos: snap.belt.pos.slice(), vel: snap.belt.vel.slice(), alive: snap.belt.alive.slice(), version: (this.belt?.version || 0) + 1 };
+    this._accReady = false;
+  }
+
   load(data) {
     this.t = data.t || 0;
     this.bodies = data.bodies.map((b) => makeBody(b, b));
