@@ -138,7 +138,6 @@ const rig = {
   mode: 'system', // system | follow | top | ride | free
   lastFocus: null,
   offsetGoal: null, // desired camera offset from target, glided toward
-  saved: {},
 };
 
 function focusPoint() {
@@ -418,13 +417,18 @@ function renderLog(fresh) {
   const keep = list ? list.scrollTop : 0;
   const last = chronicle[chronicle.length - 1];
   const line = (c) => `${c.icon ? `${c.icon} ` : ''}${c.text}`;
-  const row = (c, i) => `<li class="${c.kind || ''}${c.severe ? ' severe' : ''}"><span class="ts">${stamp(c.t)}</span><span class="tx">${line(c)}</span>${c.replay ? `<button class="replay" data-r="${i}">▶ Replay</button>` : ''}</li>`;
+  const row = (c, i) => `<li class="${c.kind || ''}${c.severe ? ' severe' : ''}"><span class="ts">${stamp(c.t)}</span><span class="tx">${line(c)}</span>${c.replay ? `<button class="replay" data-r="${i}">▶ Replay</button>` : ''}${c.action ? `<button class="replay" data-act="${i}">${c.action.label}</button>` : ''}</li>`;
   box.classList.toggle('open', LOG.open);
-  box.innerHTML = `<button class="log-head" aria-expanded="${LOG.open}"><span class="lh-last">${LOG.open || !last ? '📜 Event log' : line(last)}</span>${LOG.unread && !LOG.open ? `<b class="lh-n">${LOG.unread}</b>` : ''}<span class="lh-chev">${LOG.open ? '▴' : '▾'}</span></button>
+  const pending = !LOG.open && last?.action;
+  // a pending offer (resume last run) takes over the collapsed bar as a single tap target
+  box.innerHTML = pending
+    ? `<div class="log-offer"><button class="offer-btn" data-act="${chronicle.length - 1}">${last.icon} ${last.action.label}</button><button class="log-head" aria-expanded="false" aria-label="Open event log"><span class="lh-chev">▾</span></button></div>`
+    : `<button class="log-head" aria-expanded="${LOG.open}"><span class="lh-last">${LOG.open || !last ? '📜 Event log' : line(last)}</span>${LOG.unread && !LOG.open ? `<b class="lh-n">${LOG.unread}</b>` : ''}<span class="lh-chev">${LOG.open ? '▴' : '▾'}</span></button>
     ${LOG.open ? `<ol class="log-list">${chronicle.length ? chronicle.map(row).reverse().join('') : '<li class="muted">Nothing yet. Launch something!</li>'}</ol>` : ''}`;
   if (LOG.open) box.querySelector('.log-list').scrollTop = keep;
   box.querySelector('.log-head').onclick = () => { LOG.open = !LOG.open; LOG.unread = 0; renderLog(); };
   box.querySelectorAll('[data-r]').forEach((b) => { b.onclick = () => startReplay(chronicle[+b.dataset.r]?.replay); });
+  box.querySelectorAll('[data-act]').forEach((b) => { b.onclick = () => { chronicle[+b.dataset.act]?.action?.run(); LOG.open = false; renderLog(); }; });
   if (fresh && !LOG.open) { box.classList.remove('flash'); void box.offsetWidth; box.classList.add('flash'); }
 }
 function openChronicle() { closeModal(); LOG.open = true; LOG.unread = 0; renderLog(); }
@@ -697,36 +701,40 @@ function earthStatus() {
 }
 
 // ---------------------------------------------------------------- view switching
+// Each view has a home camera. Picking a view (even the one you're on) always lands there,
+// so you can't get lost: Sun-centred, unfollowed, at that view's default angle and zoom.
+const PORTRAIT = () => MOBILE && innerWidth < innerHeight;
+const HOME = {
+  helix: () => new THREE.Vector3(-9, 3.2, 7).multiplyScalar(PORTRAIT() ? 1.5 : 1),
+  solar: () => new THREE.Vector3(-2.2, 5.5, 6.5).multiplyScalar(PORTRAIT() ? 1.6 : 1),
+  galaxy: () => new THREE.Vector3(-30, 45, 70),
+};
+function homeCamera(v = S.view) {
+  rig.mode = 'system';
+  rig.offsetGoal = null;
+  rig.lastFocus = null;
+  controls.enabled = true;
+  const f = v === 'galaxy' ? galaxy.focus.clone() : refRender();
+  controls.target.copy(f);
+  camera.position.copy(f).add(HOME[v]());
+  camera.up.set(0, 1, 0);
+  controls.update();
+}
+
 function setView(v) {
-  if (v === S.view) return;
-  const prev = S.view;
-  // remember camera framing per view
-  rig.saved[prev] = { off: camera.position.clone().sub(controls.target), mode: rig.mode };
-  if (aim.active && v === 'galaxy') aim.cancel();
+  if (S.replay) endReplay();
+  if (aim.active) aim.cancel();
   S.view = v;
   const solar = v !== 'galaxy';
   views.group.visible = trails.group.visible = solar;
   views.group.traverse((o) => { if (o.isCSS2DObject) o.visible = solar; });
   if (belt.points) belt.points.visible = solar;
   galaxy.setVisible(!solar);
-  rig.lastFocus = null;
-  const saved = rig.saved[v];
-  if (v === 'galaxy') {
-    rig.mode = 'system';
-    const f = galaxy.focus.clone();
-    controls.target.copy(f);
-    camera.position.copy(f).add(saved?.off || new THREE.Vector3(-30, 45, 70));
-    controls.maxDistance = 2000;
-  } else {
-    controls.maxDistance = 20000;
-    if (prev === 'galaxy') {
-      const f = refRender();
-      controls.target.copy(f);
-      camera.position.copy(f).add(saved?.off || new THREE.Vector3(0, 18, 34));
-    }
-    if (v === 'helix' && !saved) rig.offsetGoal = new THREE.Vector3(-9, 2.5, 7);
-    if (saved) rig.mode = saved.mode === 'ride' ? 'system' : saved.mode;
-  }
+  controls.maxDistance = solar ? 20000 : 2000;
+  // back to default time speeds too
+  S.speed = 0.25;
+  S.galaxySpeed = 12;
+  homeCamera(v);
   document.querySelectorAll('#views button').forEach((b) => b.classList.toggle('on', b.dataset.view === v));
   document.body.dataset.view = v;
   updateDock();
@@ -816,7 +824,7 @@ function renderAimBar() {
     let body = '';
     if (h.mode === 'place') body = `<div class="aim-msg"><b>${s.icon} ${s.name}</b> Tap anywhere in space to place it.</div>`;
     if (h.mode === 'heading') body = `
-      <div class="aim-msg">Drag the <b>ring</b> to point it. Drag its <b>centre</b> to move it, or tap somewhere else.</div>
+      <div class="aim-msg">Drag the <b>knob</b> around to aim, and <b>outward</b> for more speed. On the ring is a circular orbit; the dashed ring is escape speed. Drag the <b>centre</b> to move it.</div>
       <label class="tilt">Tilt <input type="range" min="-80" max="80" step="1" id="tilt" aria-label="Tilt above or below the planets' plane"><output id="tilt-val"></output></label>
       <div class="aim-live"></div>`;
     const back = h.mode === 'place' ? 'Cancel' : 'Back';
@@ -840,7 +848,8 @@ function renderAimBar() {
   const live = bar.querySelector('.aim-live');
   if (live) {
     const hit = h.hit ? `<span class="bad">⚠ Hits ${h.hit} in ${h.hitIn < 1 ? `${(h.hitIn * 12).toFixed(1)} months` : `${h.hitIn.toFixed(1)} yr`}</span>` : '<span class="muted">No impact predicted</span>';
-    live.innerHTML = `${hit}<br><span class="muted">Launch speed <b class="mono">${h.speed.toFixed(1)} km/s</b>, matching the orbits around ${h.host}</span>`;
+    const kind = h.mult === 0 ? 'stopped dead' : Math.abs(h.mult - 1) < 0.01 ? 'circular orbit' : Math.abs(h.mult - Math.SQRT2) < 0.01 ? 'escape speed' : `${h.mult.toFixed(2)}× orbit speed`;
+    live.innerHTML = `${hit}<br><span class="muted">Speed <b class="mono">${h.speed.toFixed(1)} km/s</b> relative to ${h.host} · ${kind}</span>`;
   }
 }
 
@@ -849,7 +858,7 @@ function renderAimBar() {
 const viewShift = { cur: 0, goal: 0 };
 function frameAim() {
   if (!aim.active) { viewShift.goal = 0; return; }
-  const top = $('.topbar').getBoundingClientRect().bottom + 8;
+  const top = Math.max($('.topbar').getBoundingClientRect().bottom, $('#telemetry').getBoundingClientRect().bottom) + 8;
   const bottom = $('.dock').getBoundingClientRect().top - 8;
   viewShift.goal = Math.max(0, innerHeight / 2 - (top + bottom) / 2);
   if (aim.mode !== 'heading') return;
@@ -857,7 +866,7 @@ function frameAim() {
   const p = aim.P.clone().project(camera);
   const dx = Math.abs((p.x * innerWidth) / 2);
   const dy = Math.abs((p.y * innerHeight) / 2);
-  const margin = 84 + 30; // aiming ring radius plus its knob
+  const margin = 84 + 40; // aiming ring radius plus its knob and readout
   const halfW = Math.max(40, innerWidth / 2 - margin), halfH = Math.max(40, (bottom - top) / 2 - margin);
   const k = Math.max(dx / halfW, dy / halfH);
   if (k > 1.02 && p.z < 1) rig.offsetGoal = camera.position.clone().sub(controls.target).multiplyScalar(Math.min(k * 1.1, 20));
@@ -1068,10 +1077,10 @@ async function share(save = buildSave(sim, { view: S.view, speed: S.speed, frame
 
 function applySave(data) {
   loadSim(data.sim);
-  if (data.settings?.speed) S.speed = data.settings.speed;
   if (data.settings?.drift) settings.drift = data.settings.drift;
   if (data.settings?.frame) settings.frame = data.settings.frame;
   if (data.settings?.view && data.settings.view !== 'galaxy') setView(data.settings.view);
+  if (data.settings?.speed) S.speed = data.settings.speed;
   setPlaying(false);
   fit();
   updateDock();
@@ -1171,7 +1180,7 @@ function openHelp() {
       <ol class="howto">
         <li><b>Pick</b> an object from the bar at the bottom.</li>
         <li><b>Place</b> it: tap exactly where it should start.</li>
-        <li><b>Aim</b>: drag the ring around it to point it. The dotted line shows where it will go. Then Launch. Its speed is picked to match the orbits around it.</li>
+        <li><b>Aim</b>: drag the knob around the ring to point it, and outward or inward to change speed. On the ring is a circular orbit, the dashed ring is escape speed, the centre stops it dead. The dotted line shows where it will go. Then Launch.</li>
         <li><b>Undo</b> takes you back to the moment before, with the same aim. Collisions in the <b>Event log</b> (top right) can be replayed close up.</li>
       </ol>
       <h4>Look around</h4>
@@ -1196,7 +1205,7 @@ function onboarding() {
   if (store.get('sss.onboarded')) return;
   const steps = [
     { t: 'Our solar system, right now', b: 'Every planet is where it really is today, moving under real gravity. The Sun drags them through the galaxy, so their paths trace a helix.' },
-    { t: 'Launch something', b: 'Pick an object from the bar at the bottom. Then tap where it should start, point it, and launch.' },
+    { t: 'Launch something', b: 'Pick an object from the bar at the bottom. Then tap where it should start, drag the knob to aim it (further out = faster), and launch.' },
     { t: 'Keep an eye on Earth', b: 'The green band is the habitable zone. The Earth badge tells you if it is still livable.' },
   ];
   let i = 0;
@@ -1372,12 +1381,6 @@ document.body.dataset.view = 'solar';
 document.body.classList.toggle('mobile', MOBILE);
 freshUniverse();
 setView('helix');
-{
-  const f = refRender();
-  controls.target.copy(f);
-  camera.position.copy(f).add(new THREE.Vector3(-9, 3.2, 7).multiplyScalar(MOBILE && innerWidth < innerHeight ? 1.5 : 1));
-  rig.offsetGoal = null;
-}
 updateDock();
 
 (async () => {
@@ -1388,9 +1391,10 @@ updateDock();
   }
   const auto = store.get('gm.autosave');
   if (auto?.sim?.bodies?.some((b) => b.spawned)) {
-    toast(`Resume your last run from year ${(START_YEAR + auto.sim.t).toFixed(1)}? <button class="link" id="resume">Resume</button>`, 'sticky');
-    const b = document.getElementById('resume');
-    if (b) b.onclick = () => { try { applySave(auto); } catch {} b.closest('.toast')?.remove(); };
+    // offered in the event log, not as a pop-up over the view
+    const offer = { icon: '💾', text: `Your last run from year ${(START_YEAR + auto.sim.t).toFixed(1)} is saved.`, kind: 'note' };
+    offer.action = { label: 'Resume last run', run: () => { offer.action = null; try { applySave(auto); } catch {} } };
+    pushLog(offer);
   }
   onboarding();
 })();

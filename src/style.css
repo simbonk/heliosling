@@ -49,12 +49,12 @@ button:disabled { opacity: 0.35; cursor: default; }
 /* ---------------- top bar */
 .topbar {
   position: fixed; top: var(--top); left: 8px; right: 8px; z-index: 20;
-  display: grid; grid-template-columns: auto 1fr; grid-template-areas: 'brand actions' 'views views';
+  display: grid; grid-template-columns: auto 1fr auto; grid-template-areas: 'brand views actions';
   gap: 8px; align-items: center; pointer-events: none;
 }
 .topbar > * { pointer-events: auto; }
 .brand { grid-area: brand; display: flex; align-items: center; gap: 9px; font-weight: 500; letter-spacing: 0.04em; font-size: 12px; line-height: 1.15; }
-.brand-text { display: flex; flex-direction: column; }
+.brand-text { display: none; } /* phones: logo only, the name is on larger screens */
 .brand b { color: var(--accent); font-weight: 600; }
 .logo { width: 22px; height: 22px; border-radius: 50%; background: radial-gradient(circle at 40% 40%, #fff3c4, #ffb347 45%, rgba(255, 122, 26, 0) 72%); box-shadow: 0 0 18px #ff9a3a88; position: relative; }
 .logo::after { content: ''; position: absolute; inset: 7px -4px; border: 1.5px solid var(--accent); border-radius: 50%; transform: rotate(-25deg); }
@@ -68,12 +68,12 @@ button:disabled { opacity: 0.35; cursor: default; }
 #btn-trophy[data-count]:not([data-count='0'])::after { content: attr(data-count); position: absolute; top: -4px; right: -4px; background: var(--accent); color: var(--accent-ink); font: 600 10px var(--mono); border-radius: 8px; padding: 1px 4px; }
 .desktop-only { display: none; }
 .seg { grid-area: views; justify-self: center; display: flex; padding: 3px; border-radius: 12px; background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
-.seg button { border: 0; background: none; padding: 7px 14px; border-radius: 9px; font-size: 13px; color: var(--muted); }
+.seg button { border: 0; background: none; padding: 7px 8px; border-radius: 9px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
 .seg button.on { background: rgba(111, 211, 255, 0.16); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-strong); }
 
 /* ---------------- telemetry */
 .telemetry {
-  position: fixed; left: 8px; top: calc(var(--top) + 96px); z-index: 10; padding: 8px 10px; font: 11px/1.55 var(--mono);
+  position: fixed; left: 8px; top: calc(var(--top) + 54px); z-index: 10; padding: 8px 10px; font: 11px/1.55 var(--mono);
   width: min(240px, calc(100vw - 160px)); pointer-events: none;
 }
 .telemetry div { display: flex; gap: 8px; align-items: baseline; white-space: nowrap; }
@@ -92,7 +92,7 @@ button:disabled { opacity: 0.35; cursor: default; }
 .badge.warn { background: rgba(255, 179, 71, 0.2); color: var(--warn); }
 
 /* ---------------- event log (top right) */
-#log { position: fixed; right: 8px; top: calc(var(--top) + 96px); z-index: 16; width: calc(100vw - min(240px, calc(100vw - 160px)) - 24px); max-width: 360px; padding: 0; overflow: hidden; }
+#log { position: fixed; right: 8px; top: calc(var(--top) + 54px); z-index: 16; width: calc(100vw - min(240px, calc(100vw - 160px)) - 24px); max-width: 360px; padding: 0; overflow: hidden; }
 #log.open { width: min(360px, calc(100vw - 16px)); }
 .log-head { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 40px; padding: 6px 10px; background: none; border: 0; text-align: left; font-size: 11.5px; line-height: 1.3; }
 .lh-last { flex: 1; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -108,6 +108,9 @@ button:disabled { opacity: 0.35; cursor: default; }
 .log-list li.severe .tx { color: #ffc2c2; }
 .log-list .replay { grid-column: 2; justify-self: start; margin-top: 4px; height: 32px; padding: 0 12px; border-radius: 9px; border: 1px solid rgba(255, 179, 71, 0.5); background: rgba(255, 179, 71, 0.12); color: #ffe2b8; font-size: 12px; font-weight: 600; }
 .log-list .ach { font-size: 14px; }
+.log-offer { display: flex; align-items: stretch; }
+.log-offer .offer-btn { flex: 1; min-height: 40px; padding: 6px 10px; border: 0; background: rgba(111, 211, 255, 0.14); color: var(--text); font-size: 12px; font-weight: 600; text-align: left; }
+.log-offer .log-head { width: auto; flex: none; }
 body[data-view='galaxy'] #log { display: none; }
 
 /* ---------------- replay */
@@ -118,7 +121,7 @@ body.replaying .arsenal, body.replaying #btn-rewind, body.replaying #btn-reset, 
 
 /* ---------------- mission hud */
 #mission-hud {
-  position: fixed; z-index: 12; left: 8px; top: calc(var(--top) + 240px);
+  position: fixed; z-index: 12; left: 8px; top: calc(var(--top) + 198px);
   display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'title quit' 'status shots'; gap: 2px 12px; padding: 8px 10px 8px 14px; width: calc(100vw - 64px); max-width: 360px;
   border-color: rgba(255, 179, 71, 0.4);
 }
@@ -129,7 +132,7 @@ body.replaying .arsenal, body.replaying #btn-rewind, body.replaying #btn-reset, 
 .mh-quit { grid-area: quit; border: 0; background: none; color: var(--muted); padding: 0 2px; }
 
 /* ---------------- rail */
-#rail { position: fixed; right: 8px; top: calc(var(--top) + 190px); z-index: 10; display: flex; flex-direction: column; gap: 5px; }
+#rail { position: fixed; right: 8px; top: calc(var(--top) + 148px); z-index: 10; display: flex; flex-direction: column; gap: 5px; }
 body.aiming #rail { display: none; }
 .rail-btn {
   position: relative; width: 36px; height: 36px; border-radius: 11px; border: 1px solid var(--line); background: var(--glass);
@@ -208,6 +211,11 @@ body.aiming #info { display: none; }
 .aim-dial.drag-heading .dial-band { stroke: rgba(111, 211, 255, 0.16); }
 .aim-dial.drag-move .dial-center { fill: rgba(111, 211, 255, 0.2); }
 .dial-hint { display: none; }
+.dial-escape { fill: none; stroke: rgba(255, 179, 71, 0.45); stroke-width: 1.5; stroke-dasharray: 5 5; }
+.dial-text { fill: rgba(111, 211, 255, 0.8); font: 600 9.5px var(--mono); text-anchor: middle; letter-spacing: 0.08em; text-transform: uppercase; }
+.dial-text.esc { fill: rgba(255, 179, 71, 0.85); }
+.dial-speed { fill: #fff; font: 600 12px var(--mono); text-anchor: middle; paint-order: stroke; stroke: rgba(2, 3, 10, 0.85); stroke-width: 3px; }
+.aim-dial.drag-knob .dial-knob circle { fill: #fff; }
 #aimbar[hidden] { display: none; }
 .wiz-steps { display: flex; gap: 6px; font-size: 11.5px; color: var(--muted); }
 .wiz-steps span { display: flex; align-items: center; gap: 5px; flex: 1; padding-bottom: 6px; border-bottom: 2px solid var(--line); }
@@ -254,7 +262,7 @@ body[data-view='galaxy'] .galaxy-caption { display: block; }
 .impact-warning span { font-weight: 400; color: #ffb3b3; }
 
 /* ---------------- toasts */
-#toasts { position: fixed; z-index: 40; top: calc(var(--top) + 96px); left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; align-items: center; width: min(92vw, 420px); pointer-events: none; }
+#toasts { position: fixed; z-index: 40; top: calc(var(--top) + 54px); left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; align-items: center; width: min(92vw, 420px); pointer-events: none; }
 .toast { pointer-events: auto; background: var(--glass-strong); border: 1px solid var(--line-strong); border-radius: 12px; padding: 9px 14px; font-size: 13px; box-shadow: 0 10px 30px #0008; animation: toastIn 0.3s ease-out; transition: opacity 0.4s, transform 0.4s; text-align: center; }
 .toast.achievement { border-color: rgba(255, 210, 122, 0.6); background: linear-gradient(135deg, rgba(60, 40, 10, 0.92), rgba(15, 18, 36, 0.92)); }
 .toast .ach { font-size: 18px; vertical-align: -2px; }
@@ -336,6 +344,7 @@ body.dropping #drop-hint { display: grid; }
 
 /* ---------------- wider screens */
 @media (min-width: 760px) {
+  .seg button { padding: 7px 14px; font-size: 13px; }
   .topbar { grid-template-columns: auto 1fr auto; grid-template-areas: 'brand views actions'; left: 14px; right: 14px; }
   .pill span { display: inline; }
   .desktop-only { display: inline-flex; }
@@ -355,7 +364,7 @@ body.dropping #drop-hint { display: grid; }
   .chip { width: 78px; }
   .arsenal { justify-content: center; mask-image: none; }
   .brand { font-size: 13px; }
-  .brand-text { flex-direction: row; gap: 0.35em; }
+  .brand-text { display: flex; flex-direction: row; gap: 0.35em; }
   .aim-actions { justify-content: flex-end; }
   .aim-actions button { flex: 0 0 auto; padding: 0 22px; }
   .sheet-scrim { place-items: stretch end; }

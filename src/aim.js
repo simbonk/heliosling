@@ -5,14 +5,18 @@ import { glowTexture } from './textures.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const glow = glowTexture();
-const DIAL_R = 84;
+const DIAL_R = 84; // the ring: dragging around it aims; a knob sitting on it means circular-orbit speed
+const KNOB_MIN = 30, KNOB_MAX = 2 * DIAL_R;
+// knob distance from the centre <-> speed as a multiple of the local circular-orbit speed
+const multFromR = (r) => (r <= KNOB_MIN ? 0 : ((Math.min(r, KNOB_MAX) - KNOB_MIN) / (DIAL_R - KNOB_MIN)) ** 1.5);
+const rFromMult = (m) => KNOB_MIN + (DIAL_R - KNOB_MIN) * Math.cbrt(m * m);
 const SVGNS = 'http://www.w3.org/2000/svg';
 
 // Launch wizard, built for touch first:
 //   1. place  - tap exactly where the object should start (tap again anywhere to move it)
-//   2. heading - drag the ring around the object to point it; drag the centre to nudge its position,
-//               then Launch. Speed is picked for you: a circular orbit around whatever dominates
-//               that spot, so the object joins the local traffic (arrow keys still tune it on desktop).
+//   2. heading - drag the knob around the ring to point it, and in or out to set the speed
+//               (on the ring = circular orbit around whatever dominates that spot, dashed ring =
+//               escape, centre = stop dead). Drag the centre to nudge its position, then Launch.
 // The cue stick and a live ghost trajectory show the shot at every step.
 export class Aim {
   constructor(app) {
@@ -23,7 +27,8 @@ export class Aim {
     this.dir = new THREE.Vector3(1, 0, 0);
     this.elev = 0;
     this.speed = 0; // km/s relative to host
-    this.speedTouched = false;
+    this.circ = 0; // circular-orbit speed at this spot, km/s
+    this.mult = 1; // speed as a multiple of circ: the knob's distance from the centre
     this.normal = UP.clone();
     this.lastPredict = 0;
     this.hitId = null;
@@ -76,7 +81,7 @@ export class Aim {
 
   // ---------------------------------------------------------- dial overlay
   makeDial() {
-    const s = (DIAL_R + 40) * 2, c = s / 2;
+    const s = (KNOB_MAX + 40) * 2, c = s / 2;
     const root = document.createElement('div');
     root.className = 'aim-dial';
     root.hidden = true;
@@ -89,6 +94,10 @@ export class Aim {
       const a = (i / 24) * Math.PI * 2, r0 = DIAL_R - (i % 6 === 0 ? 9 : 5);
       mk('line', { x1: c + Math.cos(a) * r0, y1: c + Math.sin(a) * r0, x2: c + Math.cos(a) * DIAL_R, y2: c + Math.sin(a) * DIAL_R, class: 'dial-tick' });
     }
+    const rEsc = rFromMult(Math.SQRT2);
+    mk('circle', { cx: c, cy: c, r: rEsc, class: 'dial-escape' });
+    mk('text', { x: c, y: c - DIAL_R - 6, class: 'dial-text' }).textContent = 'orbit';
+    mk('text', { x: c, y: c - rEsc - 6, class: 'dial-text esc' }).textContent = 'escape';
     this.dialArrow = mk('line', { x1: c, y1: c, x2: c + DIAL_R, y2: c, class: 'dial-arrow' });
     this.dialBand = mk('circle', { cx: c, cy: c, r: DIAL_R, class: 'dial-band' });
     this.dialKnob = mk('g', { class: 'dial-knob' });
@@ -98,6 +107,7 @@ export class Aim {
     knobA.setAttribute('d', 'M -6 -7 L 8 0 L -6 7 Z');
     this.dialKnob.append(knobC, knobA);
     this.dialCenter = mk('circle', { cx: c, cy: c, r: 22, class: 'dial-center' });
+    this.dialSpeed = mk('text', { x: c, y: c, class: 'dial-speed' });
     root.appendChild(svg);
     const hint = document.createElement('div');
     hint.className = 'dial-hint';
@@ -117,13 +127,23 @@ export class Aim {
       this.app.audio.click(0.8);
     };
     this.dialBand.addEventListener('pointerdown', start('heading'));
-    this.dialKnob.addEventListener('pointerdown', start('heading'));
+    this.dialKnob.addEventListener('pointerdown', start('knob'));
     this.dialCenter.addEventListener('pointerdown', start('move'));
     const move = (e) => {
       if (!this.dragging || e.pointerId !== this.dragging.id) return;
       const hit = this.planeHit(e, this.P);
       if (!hit) return;
-      if (this.dragging.kind === 'heading') {
+      if (this.dragging.kind === 'knob') {
+        // distance from the dial centre on screen sets the speed, snapping to orbit and escape
+        const sp = this.screen(this.P);
+        const r = Math.hypot(e.clientX - sp.x, e.clientY - sp.y);
+        let m = multFromR(r);
+        for (const snap of [1, Math.SQRT2]) if (Math.abs(r - rFromMult(snap)) < 7) m = snap;
+        if (m !== this.mult && (m === 1 || m === Math.SQRT2 || m === 0)) this.app.audio.click(1.4);
+        this.mult = m;
+        this.speed = this.mult * this.circ;
+      }
+      if (this.dragging.kind === 'heading' || this.dragging.kind === 'knob') {
         const d = hit.sub(this.P).projectOnPlane(this.normal);
         if (d.lengthSq() > 0) {
           const before = Math.round(this.headingDeg());
@@ -133,7 +153,7 @@ export class Aim {
         }
       } else {
         this.P.copy(hit);
-        if (!this.speedTouched) this.orbitDefaults(false);
+        this.orbitDefaults(false);
         this.refresh();
       }
     };
@@ -167,10 +187,15 @@ export class Aim {
     const d = cam.position.distanceTo(this.P);
     const tip = this.screen(this.P.clone().addScaledVector(this.velocityDir(), d * 0.05));
     const a = Math.atan2(tip.y - sp.y, tip.x - sp.x);
-    const kx = c + Math.cos(a) * DIAL_R, ky = c + Math.sin(a) * DIAL_R;
+    const rk = rFromMult(Math.min(this.mult, multFromR(KNOB_MAX)));
+    const kx = c + Math.cos(a) * rk, ky = c + Math.sin(a) * rk;
     this.dialArrow.setAttribute('x2', kx);
     this.dialArrow.setAttribute('y2', ky);
     this.dialKnob.setAttribute('transform', `translate(${kx} ${ky}) rotate(${THREE.MathUtils.radToDeg(a)})`);
+    // speed readout just past the knob
+    this.dialSpeed.setAttribute('x', c + Math.cos(a) * (rk + 34));
+    this.dialSpeed.setAttribute('y', c + Math.sin(a) * (rk + 34) + 4);
+    this.dialSpeed.textContent = `${this.speed.toFixed(this.speed < 10 ? 1 : 0)} km/s`;
     this.dialHint.textContent = this.mode === 'heading' ? 'Drag the ring to aim · drag the centre to move' : '';
   }
 
@@ -207,8 +232,9 @@ export class Aim {
     this.app.toRenderXYZ(shot.pos.x, shot.pos.y, shot.pos.z, this.P);
     this.dir.copy(shot.dir);
     this.elev = shot.elev;
+    this.orbitDefaults(false);
     this.speed = shot.speed;
-    this.speedTouched = true;
+    this.mult = this.circ > 0 ? shot.speed / this.circ : 1;
     this.normal.copy(UP);
     this.ghost.visible = true;
     this.setStep('heading');
@@ -247,7 +273,7 @@ export class Aim {
       this.orbitDefaults(true);
       this.setStep('heading');
     } else {
-      if (!this.speedTouched) this.orbitDefaults(false);
+      this.orbitDefaults(false);
       this.refresh(true);
     }
     this.app.onPlaced?.();
@@ -261,8 +287,9 @@ export class Aim {
     this.app.toRender(host, hp);
     const rv = this.P.clone().sub(hp).projectOnPlane(UP);
     const r = Math.max(rv.length(), 1e-6);
-    if (resetHeading) { this.dir.copy(UP).cross(rv).normalize(); this.elev = 0; this.speedTouched = false; }
-    this.speed = Math.sqrt((G * (host.mass + this.spec.mass)) / r) * KMS_PER_AUYR;
+    if (resetHeading) { this.dir.copy(UP).cross(rv).normalize(); this.elev = 0; this.mult = 1; }
+    this.circ = Math.sqrt((G * (host.mass + this.spec.mass)) / r) * KMS_PER_AUYR;
+    this.speed = this.mult * this.circ;
   }
 
   setElevation(deg) {
@@ -272,7 +299,7 @@ export class Aim {
 
   nudge(kind, amount) {
     if (kind === 'turn') this.dir.applyAxisAngle(this.normal, THREE.MathUtils.degToRad(amount));
-    if (kind === 'speed') { this.speed = Math.max(0, this.speed * (1 + amount)); this.speedTouched = true; }
+    if (kind === 'speed') { this.mult = Math.max(0.02, this.mult * (1 + amount)); this.speed = this.mult * this.circ; }
     if (kind === 'elev') this.elev = THREE.MathUtils.clamp(this.elev + THREE.MathUtils.degToRad(amount), -1.4, 1.4);
     this.app.audio.click(1 + this.speed / 300);
     this.refresh(true);
@@ -441,6 +468,7 @@ export class Aim {
       spec: this.spec,
       mode: this.mode,
       speed: this.speed,
+      mult: this.mult,
       elev: THREE.MathUtils.radToDeg(this.elev),
       host: host?.name,
       hit: this.prediction?.hit?.name,

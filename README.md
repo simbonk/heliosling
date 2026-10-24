@@ -24,11 +24,9 @@ Import the repo in Vercel. It detects Vite automatically (`vercel.json` pins `np
 **Launching things** (a two-step wizard built for touch)
 1. Pick an object from the bar (asteroid, Halley's Comet, rogue Moon/Earth, Super-Jupiter, brown dwarf, red dwarf, Sun twin, neutron star, black hole).
 2. **Place**: tap exactly where it should start.
-3. **Aim & launch**: drag the ring around it to point it; drag its centre to nudge it. A ghost trajectory shows where it will go and flags impacts. Optional tilt out of the planets' plane. The view backs out so the ring is never hidden behind the controls.
+3. **Aim & launch**: drag the knob around the ring to point it, and outward or inward to set the speed. With the knob on the ring the object goes into a circular orbit around whatever dominates that spot. The dashed ring is escape speed, and the centre stops it dead; the knob snaps to each. Drag the centre to nudge the object. A ghost trajectory shows where it will go and flags impacts. Optional tilt out of the planets' plane. The view backs out so the ring is never hidden behind the controls.
 
-Launch speed is picked for you: a circular orbit around whatever dominates that spot, so a launched object joins the local traffic (arrow keys fine-tune it on desktop).
-
-**Undo** returns to the moment before your last launch with the aim intact. **Reset** offers to save the run as JSON first. **Centred on ▾** keeps the camera on the Sun, Earth, or anything else, with tilted, top-down, and ride-along angles.
+**Undo** returns to the moment before your last launch with the aim intact. **Reset** offers to save the run as JSON first. Tapping a view tab (even the current one) returns to that view's home camera and default time speed. **Centred on ▾** keeps the camera on the Sun, Earth, or anything else, with tilted, top-down, and ride-along angles.
 
 **Engagement**
 - 7 challenges with 1–3 stars (fewer shots, more stars), including a killer asteroid you must deflect and a red dwarf heist to steal Neptune.
