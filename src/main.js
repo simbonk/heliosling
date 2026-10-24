@@ -11,7 +11,7 @@ import { makeLensPass, makeGravityGrid } from './shaders.js';
 import { MISSIONS, ACHIEVEMENTS, achievementsForEvent, describe, starsFor } from './missions.js';
 import { buildSave, downloadJSON, readFile, encodeShare, decodeShare, store } from './save.js';
 import { planetTexture, earthNightTexture } from './textures.js';
-import { $, el, modal, closeModal, sheet, toast, fmtMass, fmtNum, installFastTap } from './ui.js';
+import { $, el, modal, closeModal, sheet, toast as popToast, fmtMass, fmtNum, installFastTap } from './ui.js';
 
 const MOBILE = matchMedia('(pointer: coarse)').matches || innerWidth < 760;
 const DRIFT_DIR = new THREE.Vector3(0.5, Math.sqrt(3) / 2, 0); // ~60° to the ecliptic, like the real Sun
@@ -276,6 +276,7 @@ function launch(spec, st, shot) {
   const before = sim.serialize();
   const missionData = S.mission ? JSON.parse(JSON.stringify(S.mission.data)) : null;
   const b = sim.addBody(spec, st);
+  recordSnap(performance.now(), true);
   const sunNow = sim.get('sun');
   const jup = sim.get('jupiter');
   b.launch = {
@@ -331,6 +332,7 @@ function freshUniverse() {
 }
 
 function resetVisuals() {
+  if (!S.replay) snaps.length = 0;
   views.clear();
   trails.reset();
   sim.nextSample = sim.t;
@@ -349,9 +351,18 @@ function loadSim(data, { keepMission = false } = {}) {
 
 // ---------------------------------------------------------------- events
 sim.on((ev) => {
-  const d = describe(ev);
-  if (ev.kind !== 'spawn') log(ev);
-  for (const a of achievementsForEvent(ev, sim)) unlock(a);
+  if (S.replay) {
+    // re-running the past: show the effects, but don't log, score or record anything
+    if (ev.kind === 'impact' && ev.a === S.replay.r.a && ev.b === S.replay.r.b && !S.replay.endAt) S.replay.endAt = performance.now() + 3000;
+    if (ev.kind !== 'impact') return;
+  } else {
+    if (ev.kind === 'impact') {
+      ev.replay = replayFor(ev);
+      ev.severe = MAJOR.has(ev.b) || (ev.aKind === 'blackhole' && MAJOR.has(ev.a));
+    }
+    if (ev.kind !== 'spawn') log(ev);
+    for (const a of achievementsForEvent(ev, sim)) unlock(a);
+  }
   if (ev.kind === 'impact') {
     const big = sim.get(ev.a);
     if (big) {
@@ -371,30 +382,131 @@ sim.on((ev) => {
     }
     if (S.selected === ev.b) select(ev.a);
   }
-  if (ev.kind === 'climate' || ev.kind === 'escape' || ev.kind === 'moon' || ev.kind === 'capture') toast(`${d.icon} ${d.text}`);
-  if (S.mission) {
+  if (S.mission && !S.replay) {
     const r = S.mission.def.onEvent?.(ev, game(), S.mission.data);
     if (r) missionResult(r);
   }
 });
 
+// ---------------------------------------------------------------- event log
+// Everything that happens lands here instead of popping up over the action. Collapsed, it shows
+// the latest line; tap it for a scrollable history. Collisions carry a close-up replay.
 const chronicle = [];
+const LOG = { open: false, unread: 0 };
+function pushLog(item) {
+  chronicle.push({ t: sim.t, at: performance.now(), ...item });
+  if (chronicle.length > 300) chronicle.shift();
+  if (!LOG.open) LOG.unread++;
+  renderLog(true);
+}
 function log(ev) {
   const d = ev.kind === 'launch'
     ? { icon: '🎱', text: `${ev.name} launched at ${ev.speed.toFixed(1)} km/s${ev.host ? ` (rel. ${ev.host})` : ''}` }
     : describe(ev);
-  const item = { t: ev.t ?? sim.t, ...d, at: performance.now() };
-  chronicle.push(item);
-  if (chronicle.length > 300) chronicle.shift();
-  renderTicker();
+  pushLog({ t: ev.t ?? sim.t, ...d, kind: ev.kind, replay: ev.replay, severe: ev.severe });
 }
-log.clear = () => { chronicle.length = 0; renderTicker(); };
+log.clear = () => { chronicle.length = 0; LOG.unread = 0; renderLog(); };
+// UI messages go to the log too; only the resume offer at startup still pops up
+function toast(html, kind = 'note') {
+  if (kind === 'sticky') return popToast(html, kind);
+  pushLog({ icon: '', text: html, kind });
+}
 
-function renderTicker() {
-  const box = $('#ticker');
-  const recent = chronicle.slice(-3);
-  box.innerHTML = recent.map((c) => `<div class="tick" data-at="${c.at}"><span class="ts">${stamp(c.t)}</span> ${c.icon} ${c.text}</div>`).join('');
+function renderLog(fresh) {
+  const box = $('#log');
+  const list = box.querySelector('.log-list');
+  const keep = list ? list.scrollTop : 0;
+  const last = chronicle[chronicle.length - 1];
+  const line = (c) => `${c.icon ? `${c.icon} ` : ''}${c.text}`;
+  const row = (c, i) => `<li class="${c.kind || ''}${c.severe ? ' severe' : ''}"><span class="ts">${stamp(c.t)}</span><span class="tx">${line(c)}</span>${c.replay ? `<button class="replay" data-r="${i}">▶ Replay</button>` : ''}</li>`;
+  box.classList.toggle('open', LOG.open);
+  box.innerHTML = `<button class="log-head" aria-expanded="${LOG.open}"><span class="lh-last">${LOG.open || !last ? '📜 Event log' : line(last)}</span>${LOG.unread && !LOG.open ? `<b class="lh-n">${LOG.unread}</b>` : ''}<span class="lh-chev">${LOG.open ? '▴' : '▾'}</span></button>
+    ${LOG.open ? `<ol class="log-list">${chronicle.length ? chronicle.map(row).reverse().join('') : '<li class="muted">Nothing yet. Launch something!</li>'}</ol>` : ''}`;
+  if (LOG.open) box.querySelector('.log-list').scrollTop = keep;
+  box.querySelector('.log-head').onclick = () => { LOG.open = !LOG.open; LOG.unread = 0; renderLog(); };
+  box.querySelectorAll('[data-r]').forEach((b) => { b.onclick = () => startReplay(chronicle[+b.dataset.r]?.replay); });
+  if (fresh && !LOG.open) { box.classList.remove('flash'); void box.offsetWidth; box.classList.add('flash'); }
 }
+function openChronicle() { closeModal(); LOG.open = true; LOG.unread = 0; renderLog(); }
+
+// ---------------------------------------------------------------- replays
+// A rolling buffer of light snapshots (bodies only, no belt). When two bodies collide, the
+// snapshot from a few seconds earlier is kept with the log entry, so the moment can be
+// re-run close up before the present is restored.
+const snaps = [];
+let snapT = 0;
+function recordSnap(now, force) {
+  if (!force && now - snapT < 250) return;
+  snapT = now;
+  snaps.push({ t: sim.t, bodies: sim.serialize({ belt: false }).bodies });
+  if (snaps.length > 24) snaps.shift();
+}
+const MAJOR = new Set(['sun', 'mercury', 'venus', 'earth', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune', 'pluto']);
+function replayFor(ev) {
+  const has = (s) => s.bodies.some((b) => b.id === ev.a) && s.bodies.some((b) => b.id === ev.b);
+  const from = snaps.slice(-14).find((s) => s.t < sim.t && has(s));
+  if (!from) return null;
+  return { from, tEvent: sim.t, a: ev.a, b: ev.b, title: `${ev.aName} and ${ev.bName}` };
+}
+
+function startReplay(r) {
+  if (!r || S.replay) return;
+  if (S.view === 'galaxy') setView('helix');
+  aim.cancel();
+  LOG.open = false;
+  renderLog();
+  S.replay = { r, present: sim.serialize(), speed: S.speed, playing: S.playing, selected: S.selected, mode: rig.mode, off: camera.position.clone().sub(controls.target), endAt: 0 };
+  sim.load({ t: r.from.t, bodies: r.from.bodies });
+  resetVisuals();
+  // a few real seconds to the impact; slow-mo near the close approach stretches it further
+  S.speed = Math.max(1e-5, (r.tEvent - r.from.t) / 4);
+  const a = sim.get(r.a), b = sim.get(r.b);
+  S.selected = r.a;
+  setCamMode('follow');
+  if (a && b) {
+    const gap = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+    const d = THREE.MathUtils.clamp(gap * 1.6, sim.radius(a) * 8, sim.radius(a) * 60);
+    rig.offsetGoal = new THREE.Vector3(-0.55, 0.45, 0.7).normalize().multiplyScalar(d);
+  }
+  document.body.classList.add('replaying');
+  const bar = $('#replaybar');
+  bar.hidden = false;
+  bar.innerHTML = `<span><b>▶ Replay</b> ${r.title}</span><button class="primary" id="replay-end">Back to now</button>`;
+  bar.querySelector('#replay-end').onclick = endReplay;
+  S.playing = true;
+  updateDock();
+  renderInfo();
+  updateRail();
+}
+
+function endReplay() {
+  const R = S.replay;
+  if (!R) return;
+  S.replay = null;
+  sim.load(R.present);
+  if (!settings.belt && sim.belt) sim.initBelt(0);
+  resetVisuals();
+  S.speed = R.speed;
+  S.selected = sim.get(R.selected) ? R.selected : null;
+  rig.mode = R.mode === 'ride' ? 'follow' : R.mode;
+  controls.enabled = true;
+  rig.offsetGoal = R.off;
+  document.body.classList.remove('replaying');
+  $('#replaybar').hidden = true;
+  setPlaying(R.playing);
+  renderInfo();
+  updateRail();
+}
+
+function tickReplay(now) {
+  const R = S.replay;
+  if (!R) return;
+  const span = R.r.tEvent - R.r.from.t;
+  // the impact replayed (or the re-run drifted and missed): linger a moment, then come back
+  if (!R.endAt && sim.t > R.r.tEvent + span * 0.5 + 1e-4) R.endAt = now + 1500;
+  if (R.endAt && now > R.endAt) endReplay();
+}
+
 const stamp = (t) => `T+${t < 1 ? `${(t * 365.25).toFixed(0)}d` : `${t.toFixed(t < 100 ? 2 : 0)}y`}`;
 
 function unlock(id) {
@@ -566,8 +678,7 @@ function removeBody(b) {
   audio.thud(0.8);
   b.alive = false;
   sim._accReady = false;
-  chronicle.push({ t: sim.t, icon: '✕', text: `${b.name} was removed`, at: performance.now() });
-  renderTicker();
+  pushLog({ icon: '✕', text: `${b.name} was removed` });
   select(null);
 }
 
@@ -681,7 +792,7 @@ function buildArsenal() {
   }
 }
 
-const STEPS = [['place', 'Place'], ['heading', 'Aim'], ['speed', 'Speed']];
+const STEPS = [['place', 'Place'], ['heading', 'Aim & launch']];
 function renderAimBar() {
   const h = aim.hud();
   const bar = $('#aimbar');
@@ -708,13 +819,8 @@ function renderAimBar() {
       <div class="aim-msg">Drag the <b>ring</b> to point it. Drag its <b>centre</b> to move it, or tap somewhere else.</div>
       <label class="tilt">Tilt <input type="range" min="-80" max="80" step="1" id="tilt" aria-label="Tilt above or below the planets' plane"><output id="tilt-val"></output></label>
       <div class="aim-live"></div>`;
-    if (h.mode === 'speed') body = `
-      <div class="speed-row"><input type="range" min="0" max="1" step="0.001" id="aim-speed" aria-label="Launch speed"><div class="aim-live"></div></div>
-      <div class="presets">
-        <button data-p="orbit">Circular orbit</button><button data-p="escape">Escape speed</button><button data-p="drop">Stop dead</button>
-      </div>`;
     const back = h.mode === 'place' ? 'Cancel' : 'Back';
-    const next = h.mode === 'heading' ? 'Next: speed →' : h.mode === 'speed' ? '🚀 Launch' : '';
+    const next = h.mode === 'heading' ? '🚀 Launch' : '';
     bar.innerHTML = `<div class="wiz-steps">${steps}</div>${body}
       <div class="aim-actions"><button data-a="back">${back}</button>${next ? `<button data-a="next" class="primary">${next}</button>` : ''}</div>`;
     // a step change swallows taps for a moment so a repeated tap can't skip straight to Launch
@@ -724,24 +830,44 @@ function renderAimBar() {
     if (nx) nx.onclick = guarded(() => aim.next());
     const tilt = bar.querySelector('#tilt');
     if (tilt) tilt.oninput = (e) => aim.setElevation(+e.target.value);
-    const sp = bar.querySelector('#aim-speed');
-    if (sp) sp.oninput = (e) => aim.setSpeed(Aim.toSpeed(+e.target.value));
-    bar.querySelectorAll('[data-p]').forEach((b) => { b.onclick = () => aim.presetSpeed(b.dataset.p); });
+    requestAnimationFrame(frameAim);
   }
   // live values, without rebuilding controls under the user's finger
   const tilt = bar.querySelector('#tilt');
   if (tilt && document.activeElement !== tilt) tilt.value = h.elev.toFixed(0);
   const tv = bar.querySelector('#tilt-val');
   if (tv) tv.textContent = `${h.elev.toFixed(0)}°`;
-  const sp = bar.querySelector('#aim-speed');
-  if (sp && document.activeElement !== sp) sp.value = Aim.fromSpeed(h.speed);
   const live = bar.querySelector('.aim-live');
   if (live) {
     const hit = h.hit ? `<span class="bad">⚠ Hits ${h.hit} in ${h.hitIn < 1 ? `${(h.hitIn * 12).toFixed(1)} months` : `${h.hitIn.toFixed(1)} yr`}</span>` : '<span class="muted">No impact predicted</span>';
-    live.innerHTML = h.mode === 'speed'
-      ? `<b class="mono">${h.speed.toFixed(1)} km/s</b> <span class="muted">relative to ${h.host}</span><br>${hit}`
-      : `${hit}`;
+    live.innerHTML = `${hit}<br><span class="muted">Launch speed <b class="mono">${h.speed.toFixed(1)} km/s</b>, matching the orbits around ${h.host}</span>`;
   }
+}
+
+// While aiming, centre the view on the free space between the top bar and the wizard, and
+// back the camera out until the aiming ring around the object fits, so nothing hides it.
+const viewShift = { cur: 0, goal: 0 };
+function frameAim() {
+  if (!aim.active) { viewShift.goal = 0; return; }
+  const top = $('.topbar').getBoundingClientRect().bottom + 8;
+  const bottom = $('.dock').getBoundingClientRect().top - 8;
+  viewShift.goal = Math.max(0, innerHeight / 2 - (top + bottom) / 2);
+  if (aim.mode !== 'heading') return;
+  // offsets from the view centre don't depend on the shift, and zooming out shrinks them by k
+  const p = aim.P.clone().project(camera);
+  const dx = Math.abs((p.x * innerWidth) / 2);
+  const dy = Math.abs((p.y * innerHeight) / 2);
+  const margin = 84 + 30; // aiming ring radius plus its knob
+  const halfW = Math.max(40, innerWidth / 2 - margin), halfH = Math.max(40, (bottom - top) / 2 - margin);
+  const k = Math.max(dx / halfW, dy / halfH);
+  if (k > 1.02 && p.z < 1) rig.offsetGoal = camera.position.clone().sub(controls.target).multiplyScalar(Math.min(k * 1.1, 20));
+}
+aim.app.onPlaced = () => requestAnimationFrame(frameAim);
+function applyViewShift(dt) {
+  if (!aim.active) viewShift.goal = 0;
+  viewShift.cur += (viewShift.goal - viewShift.cur) * (1 - Math.exp(-dt * 6));
+  if (Math.abs(viewShift.cur) > 0.5) camera.setViewOffset(innerWidth, innerHeight, 0, viewShift.cur, innerWidth, innerHeight);
+  else if (camera.view?.enabled) camera.clearViewOffset();
 }
 
 let aimBarPending = false;
@@ -866,41 +992,6 @@ function updateHZ() {
   }
 }
 
-// ---------------------------------------------------------------- radar
-const radar = $('#radar');
-const rctx = radar.getContext('2d');
-function drawRadar() {
-  const dpr = Math.min(devicePixelRatio, 2);
-  const size = radar.clientWidth;
-  if (radar.width !== size * dpr) { radar.width = radar.height = size * dpr; }
-  const W = radar.width, c = W / 2;
-  rctx.clearRect(0, 0, W, W);
-  if (S.view === 'galaxy') return;
-  const scale = (r) => (Math.log1p(r * 3) / Math.log1p(55 * 3)) * (c - 4 * dpr);
-  rctx.strokeStyle = 'rgba(120,170,255,0.18)';
-  rctx.lineWidth = dpr;
-  for (const r of [1, 5.2, 30]) { rctx.beginPath(); rctx.arc(c, c, scale(r), 0, Math.PI * 2); rctx.stroke(); }
-  // camera heading wedge
-  const dir = new THREE.Vector3();
-  camera.getWorldDirection(dir);
-  const ang = Math.atan2(dir.z, dir.x);
-  rctx.fillStyle = 'rgba(120,200,255,0.08)';
-  rctx.beginPath(); rctx.moveTo(c, c); rctx.arc(c, c, c, ang - 0.4, ang + 0.4); rctx.fill();
-  const ref = refBody();
-  if (!ref) return;
-  for (const b of sim.bodies) {
-    if (!b.alive) continue;
-    const dx = b.x - ref.x, dz = b.z - ref.z;
-    const r = Math.hypot(dx, dz);
-    const rr = Math.min(scale(r), c - 3 * dpr);
-    const x = c + (r > 0 ? (dx / r) * rr : 0), y = c + (r > 0 ? (dz / r) * rr : 0);
-    const sz = (b.kind === 'star' || b.kind === 'blackhole' ? 3.2 : b.spawned ? 2.6 : 2) * dpr;
-    rctx.fillStyle = b.kind === 'blackhole' ? '#ff9a4a' : b.color;
-    rctx.beginPath(); rctx.arc(x, y, sz, 0, Math.PI * 2); rctx.fill();
-    if (b.id === S.selected || b.spawned) { rctx.strokeStyle = b.id === S.selected ? '#fff' : 'rgba(255,255,255,0.5)'; rctx.beginPath(); rctx.arc(x, y, sz + 2 * dpr, 0, Math.PI * 2); rctx.stroke(); }
-  }
-}
-radar.onclick = () => radar.classList.toggle('big');
 
 // ---------------------------------------------------------------- telemetry
 function stabilityInfo() {
@@ -1005,7 +1096,7 @@ window.addEventListener('drop', async (e) => {
 });
 
 setInterval(() => {
-  if (S.view === 'galaxy' || S.mission || !sim.bodies.some((b) => b.spawned)) return;
+  if (S.view === 'galaxy' || S.mission || S.replay || !sim.bodies.some((b) => b.spawned)) return;
   store.set('gm.autosave', buildSave(sim, { view: S.view, speed: S.speed, frame: settings.frame, drift: settings.drift }));
 }, 15000);
 
@@ -1071,9 +1162,6 @@ function openMenu() {
   });
 }
 
-function openChronicle() {
-  sheet('Event log', chronicle.length ? `<div class="chronicle">${[...chronicle].reverse().map((c) => `<div><span class="ts">${stamp(c.t)}</span> ${c.icon} ${c.text}</div>`).join('')}</div>` : '<p class="muted">Nothing has happened yet. Launch something!</p>');
-}
 
 function openHelp() {
   modal({
@@ -1083,8 +1171,8 @@ function openHelp() {
       <ol class="howto">
         <li><b>Pick</b> an object from the bar at the bottom.</li>
         <li><b>Place</b> it: tap exactly where it should start.</li>
-        <li><b>Aim</b>: drag the ring around it to point it. The dotted line shows where it will go.</li>
-        <li><b>Speed</b>: use the slider or a preset, then Launch. <b>Undo</b> takes you back to the moment before, with the same aim.</li>
+        <li><b>Aim</b>: drag the ring around it to point it. The dotted line shows where it will go. Then Launch. Its speed is picked to match the orbits around it.</li>
+        <li><b>Undo</b> takes you back to the moment before, with the same aim. Collisions in the <b>Event log</b> (top right) can be replayed close up.</li>
       </ol>
       <h4>Look around</h4>
       <p>${MOBILE ? 'One finger orbits, pinch zooms, two fingers pan.' : 'Drag to orbit, scroll to zoom, right-drag to pan.'} Use <b>Centred on ▾</b> (right side) to follow Earth or anything else. Tapping a planet also offers “Center on”.</p>
@@ -1097,7 +1185,7 @@ function openHelp() {
         <span><kbd>Space</kbd> play / pause</span><span><kbd>[</kbd> <kbd>]</kbd> speed</span><span><kbd>R</kbd> undo launch</span>
         <span><kbd>F</kbd> fit</span><span><kbd>0</kbd>–<kbd>9</kbd> center on Sun / planets</span><span><kbd>V</kbd> next view</span>
         <span><kbd>H</kbd> habitable zone</span><span><kbd>G</kbd> gravity wells</span><span><kbd>L</kbd> labels</span>
-        <span><kbd>←</kbd> <kbd>→</kbd> turn aim</span><span><kbd>↑</kbd> <kbd>↓</kbd> speed</span><span><kbd>Enter</kbd> next / launch</span>
+        <span><kbd>←</kbd> <kbd>→</kbd> turn aim</span><span><kbd>↑</kbd> <kbd>↓</kbd> faster / slower</span><span><kbd>Enter</kbd> launch</span>
       </div>`}
       <p class="muted small">Physics: real masses, planets placed at today's positions from JPL orbital elements, N-body gravity with an adaptive leapfrog integrator. Sizes are exaggerated so you can see them (switch to true scale in Layers); distances and masses are real.</p>`,
     actions: [{ label: 'Got it', primary: true, onClick: closeModal }],
@@ -1108,7 +1196,7 @@ function onboarding() {
   if (store.get('sss.onboarded')) return;
   const steps = [
     { t: 'Our solar system, right now', b: 'Every planet is where it really is today, moving under real gravity. The Sun drags them through the galaxy, so their paths trace a helix.' },
-    { t: 'Launch something', b: 'Pick an object from the bar at the bottom. Then follow three steps: place it, aim it, set its speed.' },
+    { t: 'Launch something', b: 'Pick an object from the bar at the bottom. Then tap where it should start, point it, and launch.' },
     { t: 'Keep an eye on Earth', b: 'The green band is the habitable zone. The Earth badge tells you if it is still livable.' },
   ];
   let i = 0;
@@ -1215,7 +1303,9 @@ function frameLoop(now) {
       dtSim = sim.advance(span, MOBILE ? 350 : 700);
       S.dilated = dtSim < span * 0.8;
       if (sim.t > 1000) unlock('time_lord');
-      if (S.mission && !S.mission.done && now - missionT > 100) {
+      if (!S.replay) recordSnap(now);
+      else tickReplay(now);
+      if (S.mission && !S.mission.done && !S.replay && now - missionT > 100) {
         missionT = now;
         const r = S.mission.def.tick?.(game(), S.mission.data);
         if (r) missionResult(r);
@@ -1259,8 +1349,9 @@ function frameLoop(now) {
     updateHZ();
   }
   updateCamera(dt, dtSim);
+  applyViewShift(dt);
   audio.drone(S.view === 'galaxy' ? S.galaxySpeed / 12 : S.speed * S.slow, isPlaying() && !aim.active);
-  if (now - teleT > 120) { teleT = now; renderTelemetry(); drawRadar(); if (S.mission) renderMissionHud(); fadeTicker(now); }
+  if (now - teleT > 120) { teleT = now; renderTelemetry(); if (S.mission) renderMissionHud(); }
   if (now - infoT > 500 && S.selected) { infoT = now; renderInfo(); }
   bloom.enabled = settings.bloom;
   composer.render();
@@ -1268,9 +1359,6 @@ function frameLoop(now) {
   requestAnimationFrame(frameLoop);
 }
 
-function fadeTicker(now) {
-  document.querySelectorAll('#ticker .tick').forEach((t) => { t.classList.toggle('old', now - +t.dataset.at > 9000); });
-}
 
 // ---------------------------------------------------------------- boot
 installFastTap();

@@ -21,23 +21,25 @@ Import the repo in Vercel. It detects Vite automatically (`vercel.json` pins `np
 - **Solar**: Sun-centred (or inertial, in settings). Contrails show the familiar ellipses.
 - **Milky Way**: the Sun's 230-million-year lap around Sagittarius A*, with Earth's great extinctions pinned where the Sun was when they happened.
 
-**Launching things** (a three-step wizard built for touch)
+**Launching things** (a two-step wizard built for touch)
 1. Pick an object from the bar (asteroid, Halley's Comet, rogue Moon/Earth, Super-Jupiter, brown dwarf, red dwarf, Sun twin, neutron star, black hole).
 2. **Place**: tap exactly where it should start.
-3. **Aim**: drag the ring around it to point it; drag its centre to nudge it. A ghost trajectory shows where it will go and flags impacts. Optional tilt out of the planets' plane.
-4. **Speed**: slider or presets (circular orbit, escape speed, stop dead), then Launch.
+3. **Aim & launch**: drag the ring around it to point it; drag its centre to nudge it. A ghost trajectory shows where it will go and flags impacts. Optional tilt out of the planets' plane. The view backs out so the ring is never hidden behind the controls.
+
+Launch speed is picked for you: a circular orbit around whatever dominates that spot, so a launched object joins the local traffic (arrow keys fine-tune it on desktop).
 
 **Undo** returns to the moment before your last launch with the aim intact. **Reset** offers to save the run as JSON first. **Centred on ▾** keeps the camera on the Sun, Earth, or anything else, with tilted, top-down, and ride-along angles.
 
 **Engagement**
 - 7 challenges with 1–3 stars (fewer shots, more stars), including a killer asteroid you must deflect and a red dwarf heist to steal Neptune.
 - An Earth badge shows its temperature and whether it is still in the habitable zone (the zone itself can be drawn as a band from Layers).
-- 15 achievements, an event log, and a live system stability index.
+- 15 achievements and a live system stability index.
+- An event log (top right) collects everything that happens instead of popping messages over the action. Every collision in it has a **Replay** button that re-runs the last few seconds before it with a close-up camera, then returns to the present.
 - Auto slow-mo when a launched object has a close call, camera shake on impacts, procedural WebAudio sound (drone that pitches with time warp, cue ratchet, impact boom).
 
 **Visuals** (all procedural, no image assets)
 - Canvas-generated planet textures, Earth day/night shader with city lights and an atmospheric rim, Saturn's rings, black hole accretion disk plus screen-space gravitational lensing, tidal stretching near black holes, bloom.
-- Layers: gravity-well "rubber sheet" grid (on by default), contrails, labels, habitable zone, true scale. Plus a radar mini-map and label decluttering.
+- Layers: gravity-well "rubber sheet" grid (on by default), contrails, labels, habitable zone, true scale. Plus label decluttering.
 - Impacts scale with the collision's real kinetic energy: a fireball at the contact point, an ejecta curtain thrown downrange that falls back and glows, a shock front, a temporary debris ring for giant impacts, and infalling streamers for black holes. The event log compares the energy to the dinosaur-killing Chicxulub impact.
 
 ## Answers to the design questions

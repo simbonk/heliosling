@@ -10,13 +10,14 @@ const SVGNS = 'http://www.w3.org/2000/svg';
 
 // Launch wizard, built for touch first:
 //   1. place  - tap exactly where the object should start (tap again anywhere to move it)
-//   2. heading - drag the ring around the object to point it; drag the centre to nudge its position
-//   3. speed  - slider plus presets (orbit / escape / drop in), then Launch
+//   2. heading - drag the ring around the object to point it; drag the centre to nudge its position,
+//               then Launch. Speed is picked for you: a circular orbit around whatever dominates
+//               that spot, so the object joins the local traffic (arrow keys still tune it on desktop).
 // The cue stick and a live ghost trajectory show the shot at every step.
 export class Aim {
   constructor(app) {
     this.app = app;
-    this.mode = null; // 'place' | 'heading' | 'speed'
+    this.mode = null; // 'place' | 'heading'
     this.spec = null;
     this.P = new THREE.Vector3();
     this.dir = new THREE.Vector3(1, 0, 0);
@@ -128,7 +129,7 @@ export class Aim {
           const before = Math.round(this.headingDeg());
           this.dir.copy(d.normalize());
           if (Math.round(this.headingDeg() / 5) !== Math.round(before / 5)) this.app.audio.click(1.1);
-          if (this.mode === 'heading' || this.mode === 'speed') this.refresh();
+          if (this.mode === 'heading') this.refresh();
         }
       } else {
         this.P.copy(hit);
@@ -154,7 +155,7 @@ export class Aim {
 
   updateDial() {
     const { root, c } = this.dial;
-    const show = this.mode === 'heading' || this.mode === 'speed';
+    const show = this.mode === 'heading';
     root.hidden = !show;
     if (!show) return;
     const sp = this.screen(this.P);
@@ -170,7 +171,6 @@ export class Aim {
     this.dialArrow.setAttribute('x2', kx);
     this.dialArrow.setAttribute('y2', ky);
     this.dialKnob.setAttribute('transform', `translate(${kx} ${ky}) rotate(${THREE.MathUtils.radToDeg(a)})`);
-    root.classList.toggle('speed-step', this.mode === 'speed');
     this.dialHint.textContent = this.mode === 'heading' ? 'Drag the ring to aim · drag the centre to move' : '';
   }
 
@@ -211,7 +211,7 @@ export class Aim {
     this.speedTouched = true;
     this.normal.copy(UP);
     this.ghost.visible = true;
-    this.setStep('speed');
+    this.setStep('heading');
   }
 
   setStep(step) {
@@ -222,13 +222,11 @@ export class Aim {
   }
 
   next() {
-    if (this.mode === 'heading') this.setStep('speed');
-    else if (this.mode === 'speed') this.fire();
+    if (this.mode === 'heading') this.fire();
   }
 
   back() {
-    if (this.mode === 'speed') this.setStep('heading');
-    else if (this.mode === 'heading') this.setStep('place');
+    if (this.mode === 'heading') this.setStep('place');
     else this.cancel();
   }
 
@@ -252,6 +250,7 @@ export class Aim {
       if (!this.speedTouched) this.orbitDefaults(false);
       this.refresh(true);
     }
+    this.app.onPlaced?.();
   }
 
   // Start every shot as a prograde circular orbit around whatever dominates that spot,
@@ -264,35 +263,6 @@ export class Aim {
     const r = Math.max(rv.length(), 1e-6);
     if (resetHeading) { this.dir.copy(UP).cross(rv).normalize(); this.elev = 0; this.speedTouched = false; }
     this.speed = Math.sqrt((G * (host.mass + this.spec.mass)) / r) * KMS_PER_AUYR;
-  }
-
-  presetSpeed(kind) {
-    const host = this.host();
-    const hp = new THREE.Vector3();
-    this.app.toRender(host, hp);
-    const r = Math.max(this.P.distanceTo(hp), 1e-6);
-    const circ = Math.sqrt((G * (host.mass + this.spec.mass)) / r) * KMS_PER_AUYR;
-    if (kind === 'orbit') {
-      const rv = this.P.clone().sub(hp).projectOnPlane(UP);
-      this.dir.copy(UP).cross(rv).normalize();
-      this.elev = 0;
-      this.speed = circ;
-    }
-    if (kind === 'escape') this.speed = circ * Math.SQRT2 * 1.05;
-    if (kind === 'drop') this.speed = 0;
-    this.speedTouched = true;
-    this.app.audio.click(1.3);
-    this.refresh(true);
-  }
-
-  // slider position 0..1 <-> km/s, finer at the low end where orbits live
-  static toSpeed(x) { return 400 * Math.pow(x, 2.2); }
-  static fromSpeed(v) { return Math.pow(Math.min(v, 400) / 400, 1 / 2.2); }
-
-  setSpeed(kms) {
-    this.speed = Math.max(0, kms);
-    this.speedTouched = true;
-    this.refresh();
   }
 
   setElevation(deg) {
@@ -404,7 +374,7 @@ export class Aim {
     const len = (30 + Math.min(this.speed, 300) * 0.9) * worldPerPx;
     const w = worldPerPx * 3;
     const start = this.P.clone().addScaledVector(back, worldPerPx * 26);
-    this.cue.visible = this.cueTip.visible = this.mode === 'speed' && this.speed > 0;
+    this.cue.visible = this.cueTip.visible = this.mode === 'heading' && this.speed > 0;
     this.cue.position.copy(start).addScaledVector(back, len / 2 + w * 3);
     this.cue.scale.set(w, len, w);
     this.cue.quaternion.setFromUnitVectors(UP, back.clone().negate());

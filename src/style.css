@@ -71,10 +71,10 @@ button:disabled { opacity: 0.35; cursor: default; }
 .seg button { border: 0; background: none; padding: 7px 14px; border-radius: 9px; font-size: 13px; color: var(--muted); }
 .seg button.on { background: rgba(111, 211, 255, 0.16); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-strong); }
 
-/* ---------------- telemetry + radar */
+/* ---------------- telemetry */
 .telemetry {
   position: fixed; left: 8px; top: calc(var(--top) + 96px); z-index: 10; padding: 8px 10px; font: 11px/1.55 var(--mono);
-  width: min(250px, calc(100vw - 112px)); pointer-events: none;
+  width: min(240px, calc(100vw - 160px)); pointer-events: none;
 }
 .telemetry div { display: flex; gap: 8px; align-items: baseline; white-space: nowrap; }
 .telemetry span { color: var(--muted); width: 76px; letter-spacing: 0.08em; font-size: 10px; }
@@ -90,8 +90,31 @@ button:disabled { opacity: 0.35; cursor: default; }
 .earth-pill.bad { background: rgba(255, 93, 93, 0.16); border-color: rgba(255, 93, 93, 0.55); color: #ffd0d0; animation: pulse 1.6s infinite; }
 .badge { font-style: normal; font-size: 9px; padding: 1px 5px; border-radius: 4px; background: rgba(111, 211, 255, 0.2); color: var(--accent); letter-spacing: 0.08em; animation: pulse 1.2s infinite; }
 .badge.warn { background: rgba(255, 179, 71, 0.2); color: var(--warn); }
-#radar { position: fixed; right: 8px; top: calc(var(--top) + 96px); width: 84px; height: 84px; border-radius: 50%; z-index: 10; cursor: pointer; transition: width 0.25s, height 0.25s; }
-#radar.big { width: 200px; height: 200px; }
+
+/* ---------------- event log (top right) */
+#log { position: fixed; right: 8px; top: calc(var(--top) + 96px); z-index: 16; width: calc(100vw - min(240px, calc(100vw - 160px)) - 24px); max-width: 360px; padding: 0; overflow: hidden; }
+#log.open { width: min(360px, calc(100vw - 16px)); }
+.log-head { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 40px; padding: 6px 10px; background: none; border: 0; text-align: left; font-size: 11.5px; line-height: 1.3; }
+.lh-last { flex: 1; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.lh-n { font: 600 10px var(--mono); background: var(--accent); color: var(--accent-ink); border-radius: 9px; padding: 1px 6px; }
+.lh-chev { color: var(--muted); font-size: 11px; }
+#log.flash { animation: logFlash 1.2s ease-out; }
+@keyframes logFlash { 0% { border-color: var(--accent); box-shadow: 0 0 18px rgba(111, 211, 255, 0.45); } }
+.log-list { list-style: none; margin: 0; padding: 0 8px 8px; max-height: min(46vh, 420px); overflow-y: auto; touch-action: pan-y; overscroll-behavior: contain; border-top: 1px solid var(--line); user-select: text; }
+.log-list li { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; padding: 7px 2px; border-bottom: 1px solid var(--line); font-size: 12px; line-height: 1.35; }
+.log-list li:last-child { border-bottom: 0; }
+.log-list li.note .tx { color: var(--muted); }
+.log-list li.achievement .tx { color: #ffe0a0; }
+.log-list li.severe .tx { color: #ffc2c2; }
+.log-list .replay { grid-column: 2; justify-self: start; margin-top: 4px; height: 32px; padding: 0 12px; border-radius: 9px; border: 1px solid rgba(255, 179, 71, 0.5); background: rgba(255, 179, 71, 0.12); color: #ffe2b8; font-size: 12px; font-weight: 600; }
+.log-list .ach { font-size: 14px; }
+body[data-view='galaxy'] #log { display: none; }
+
+/* ---------------- replay */
+#replaybar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-color: rgba(255, 179, 71, 0.5); font-size: 13px; }
+#replaybar[hidden] { display: none; }
+#replaybar button { height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+body.replaying .arsenal, body.replaying #btn-rewind, body.replaying #btn-reset, body.replaying #aimbar, body.replaying #info, body.replaying #btn-missions { display: none !important; }
 
 /* ---------------- mission hud */
 #mission-hud {
@@ -138,13 +161,7 @@ body.mobile #info:not(.open) dl { display: none; }
 .info-actions button.on { border-color: var(--accent); color: var(--accent); }
 .info-actions .danger { color: #ffc2c2; border-color: rgba(255, 93, 93, 0.35); }
 
-/* ---------------- ticker */
-#ticker { position: fixed; left: 10px; bottom: calc(var(--bottom) + 128px); z-index: 9; max-width: min(72vw, 460px); font-size: 11px; pointer-events: none; }
-.tick { padding: 3px 8px; margin-top: 3px; border-radius: 8px; background: rgba(5, 8, 18, 0.55); transition: opacity 1s; animation: tickIn 0.35s ease-out; }
-.tick.old { opacity: 0.25; }
 .ts { font-family: var(--mono); color: var(--accent); font-size: 10px; }
-@keyframes tickIn { from { transform: translateY(6px); opacity: 0; } }
-body:has(#info:not([hidden])) #ticker { display: none; }
 
 /* ---------------- dock */
 .dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; padding: 0 8px var(--bottom); display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
@@ -174,7 +191,7 @@ body:has(#info:not([hidden])) #ticker { display: none; }
 
 #aimbar { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; border-color: rgba(111, 211, 255, 0.4); }
 body.aiming .arsenal { display: none; }
-body.aiming #info, body.aiming #ticker { display: none; }
+body.aiming #info { display: none; }
 
 /* dial drawn around the object while aiming */
 .aim-dial { position: fixed; left: 0; top: 0; z-index: 13; pointer-events: none; touch-action: none; }
@@ -190,7 +207,6 @@ body.aiming #info, body.aiming #ticker { display: none; }
 .dial-center { fill: rgba(255, 255, 255, 0.06); stroke: rgba(255, 255, 255, 0.55); stroke-width: 1.5; stroke-dasharray: 3 3; pointer-events: all; cursor: move; }
 .aim-dial.drag-heading .dial-band { stroke: rgba(111, 211, 255, 0.16); }
 .aim-dial.drag-move .dial-center { fill: rgba(111, 211, 255, 0.2); }
-.aim-dial.speed-step .dial-track, .aim-dial.speed-step .dial-tick { opacity: 0.4; }
 .dial-hint { display: none; }
 #aimbar[hidden] { display: none; }
 .wiz-steps { display: flex; gap: 6px; font-size: 11.5px; color: var(--muted); }
@@ -202,10 +218,6 @@ body.aiming #info, body.aiming #ticker { display: none; }
 .wiz-steps .done i { background: rgba(89, 227, 160, 0.2); }
 .aim-live { font-size: 12px; line-height: 1.4; }
 .aim-live b.mono { font-size: 18px; color: var(--accent); }
-.speed-row { display: flex; flex-direction: column; gap: 6px; }
-.speed-row input { width: 100%; height: 32px; accent-color: var(--accent); }
-.presets { display: flex; gap: 6px; }
-.presets button { flex: 1; height: 44px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.05); font-size: 12px; }
 .tilt output { font: 11px var(--mono); min-width: 34px; text-align: right; color: var(--text); }
 .aim-msg { font-size: 13px; line-height: 1.4; }
 .aim-msg b { margin-right: 6px; }
@@ -220,7 +232,7 @@ body.aiming #info, body.aiming #ticker { display: none; }
 body.aiming #stage canvas { cursor: crosshair; }
 
 /* galaxy view trims the UI to what applies */
-body[data-view='galaxy'] .arsenal, body[data-view='galaxy'] #btn-rewind, body[data-view='galaxy'] #btn-stop, body[data-view='galaxy'] #rail .rail-btn:not([data-id='fit']), body[data-view='galaxy'] #rail .sep, body[data-view='galaxy'] #radar, body[data-view='galaxy'] #ticker { display: none; }
+body[data-view='galaxy'] .arsenal, body[data-view='galaxy'] #btn-rewind, body[data-view='galaxy'] #btn-stop, body[data-view='galaxy'] #rail .rail-btn:not([data-id='fit']), body[data-view='galaxy'] #rail .sep { display: none; }
 body[data-view='galaxy'] .galaxy-caption { display: block; }
 
 /* ---------------- labels */
@@ -313,7 +325,6 @@ kbd { font: 11px var(--mono); padding: 1px 5px; border: 1px solid var(--line-str
 .hz-label { pointer-events: none; }
 .hz-label b { color: #7ff0ad; font-size: 11px; }
 .hz-label small { padding-left: 0; color: #9fd9b6; }
-.chronicle { font-size: 13px; display: flex; flex-direction: column; gap: 6px; }
 
 /* ---------------- loading + drop */
 #loading { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: grid; place-content: center; justify-items: center; gap: 14px; color: var(--muted); font-size: 13px; letter-spacing: 0.1em; transition: opacity 0.5s; }
@@ -329,8 +340,8 @@ body.dropping #drop-hint { display: grid; }
   .pill span { display: inline; }
   .desktop-only { display: inline-flex; }
   .telemetry { top: calc(var(--top) + 54px); left: 14px; font-size: 12px; }
-  #radar { top: calc(var(--top) + 54px); right: 14px; width: 120px; height: 120px; }
-  #radar.big { width: 240px; height: 240px; }
+  #log { top: calc(var(--top) + 54px); right: 14px; width: 340px; }
+  #log.open { width: 380px; }
   #mission-hud { top: calc(var(--top) + 54px); left: 50%; transform: translateX(-50%); width: 340px; }
   #toasts { top: calc(var(--top) + 120px); }
   #rail { right: 14px; top: 50%; transform: translateY(-40%); gap: 6px; }
@@ -340,7 +351,6 @@ body.dropping #drop-hint { display: grid; }
   .rail-btn em { display: block; position: absolute; right: 48px; top: 50%; transform: translateY(-50%); white-space: nowrap; font: 12px var(--ui); color: var(--text); background: var(--glass-strong); padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); opacity: 0; pointer-events: none; transition: opacity 0.15s; }
   .rail-btn:hover em { opacity: 1; }
   #info { left: auto; right: 64px; top: calc(var(--top) + 190px); bottom: auto; width: 300px; }
-  #ticker { left: 14px; bottom: 170px; }
   .dock { left: 50%; right: auto; transform: translateX(-50%); width: min(860px, calc(100vw - 28px)); padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); }
   .chip { width: 78px; }
   .arsenal { justify-content: center; mask-image: none; }

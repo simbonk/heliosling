@@ -31,15 +31,15 @@
     </header>
 
     <section id="telemetry" class="telemetry hud" aria-live="off"></section>
-    <canvas id="radar" class="hud" aria-label="Radar: top-down map of the system"></canvas>
+    <section id="log" class="hud" aria-label="Event log"></section>
     <div id="mission-hud" class="hud" hidden></div>
     <div id="toasts" aria-live="polite"></div>
     <aside id="rail" aria-label="Camera and overlays"></aside>
     <section id="info" class="hud" hidden></section>
-    <div id="ticker"></div>
 
     <footer class="dock">
       <div id="aimbar" class="hud" hidden></div>
+      <div id="replaybar" class="hud" hidden></div>
       <div class="timebar hud">
         <button id="btn-play" class="tb play" aria-label="Pause"></button>
         <button id="btn-rewind" class="tb labelled" aria-label="Undo last launch" title="Undo last launch (R)"><svg viewBox="0 0 24 24"><path d="M12.5 8c-2.65 0-5.05 1-6.9 2.6L2 7v9h9l-3.62-3.62A7.95 7.95 0 0 1 12.5 10.5c3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/></svg><span>Undo</span></button>

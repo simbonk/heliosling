@@ -431,12 +431,12 @@ export class Sim {
     return { x: p.x, y: p.y, z: p.z, vx: -p.vx, vy: -p.vy, vz: -p.vz };
   }
 
-  serialize() {
+  serialize({ belt = true } = {}) {
     const keep = ['id', 'name', 'type', 'kind', 'tagline', 'mass', 'radiusKm', 'color', 'tex', 'rings', 'luminosity', 'spawned', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'escaped', 'born', 'a0', 'e0'];
     return {
       t: this.t,
       bodies: this.alive().map((b) => Object.fromEntries(keep.map((k) => [k, b[k]]))),
-      belt: this.belt && {
+      belt: belt && this.belt && {
         n: this.belt.n,
         pos: Array.from(this.belt.pos, (v) => +v.toFixed(5)),
         vel: Array.from(this.belt.vel, (v) => +v.toFixed(5)),
