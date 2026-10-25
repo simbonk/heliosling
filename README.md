@@ -17,7 +17,7 @@ occasional extinction-level fireball. It runs in your browser, works best on a p
    to one side to aim the other way. Drag the sky to look around and tip the shot up or down. The solid ring
    is the speed for a neat circular orbit and the dashed ring is escape speed. A ghost path shows where it is going.
 4. **Watch.** The camera chases your shot, then plays it back from the side and from above, plus from the
-   target's point of view if you hit something. Save the good ones and rewatch them from the 🔖 button.
+   target's point of view if you hit something. Save the good ones, rewatch them from the 🔖 button, and share any of them as a link that plays the shot for whoever opens it.
 
 Made a mess? **Rewind** winds back 10 seconds per press, and **Reset** puts the solar system back to today. New here? The app offers a quick **tour** on your first visit, and it lives in the menu after that.
 

@@ -11,7 +11,7 @@ import { Audio } from './audio.js';
 import { makeLensPass, makeGravityGrid } from './shaders.js';
 import { MISSIONS, describe, starsFor } from './missions.js';
 import TRICK_SHOTS from './trickshots.json';
-import { buildSave, downloadJSON, readFile, decodeShare, store } from './save.js';
+import { buildSave, downloadJSON, readFile, decodeShare, encodeShot, decodeShot, store } from './save.js';
 import { planetTexture, earthNightTexture } from './textures.js';
 import { icon, orb } from './icons.js';
 import { $, el, modal, closeModal, sheet, toast as popToast, fmtMass, fmtNum, installFastTap } from './ui.js';
@@ -649,6 +649,7 @@ function wrapUp(F) {
   renderInfo();
   updateRail();
   if (F.save && !F.fromSave && !S.switchingView) offerSave(F);
+  if (F.shared) keepSharedShot(F.shared);
 }
 
 // ---------------------------------------------------------------- saved shots
@@ -700,15 +701,41 @@ function promptSave(F) {
 function openSaved() {
   const list = savedShots();
   const fmt = (ms) => new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  const rows = list.length ? list.map((r) => `<div class="shot-row" data-id="${r.id}"><div><b>${r.name.replace(/</g, '&lt;')}</b><small>${fmt(r.at)} · ${r.meta.hitDt != null ? 'impact' : 'flight'}</small></div><button data-play="${r.id}" class="primary">▶ Watch</button><button data-del="${r.id}" aria-label="Delete ${r.name.replace(/"/g, '')}">✕</button></div>`).join('')
+  const rows = list.length ? list.map((r) => `<div class="shot-row" data-id="${r.id}"><div><b>${r.name.replace(/</g, '&lt;')}</b><small>${fmt(r.at)} · ${r.meta.hitDt != null ? 'impact' : 'flight'}</small></div><button data-play="${r.id}" class="primary">▶ Watch</button><button data-share="${r.id}" aria-label="Share ${r.name.replace(/"/g, '')}">${icon('share')}</button><button data-del="${r.id}" aria-label="Delete ${r.name.replace(/"/g, '')}">✕</button></div>`).join('')
     : `<div class="shot-empty">${icon('bookmark')}<p><b>Nothing saved yet.</b> Go make something cool. After every launch plays out you'll be asked whether to keep it, and anything you save lands here to rewatch.</p></div>`;
   sheet('Saved shots', `<div class="shot-list">${rows}</div>`, (box) => {
     box.querySelectorAll('[data-play]').forEach((b) => { b.onclick = () => { closeModal(); playShot(savedShots().find((r) => r.id === b.dataset.play)); }; });
+    box.querySelectorAll('[data-share]').forEach((b) => { b.onclick = () => shareShot(savedShots().find((r) => r.id === b.dataset.share)); });
     box.querySelectorAll('[data-del]').forEach((b) => { b.onclick = () => {
       store.set(SHOTS_KEY, savedShots().filter((r) => r.id !== b.dataset.del));
       b.closest('.shot-row').remove();
     }; });
   });
+}
+
+// A link that plays the shot for whoever opens it. Phones get the share sheet, desktops a copied link.
+async function shareShot(rec) {
+  if (!rec) return;
+  const url = `${location.origin}${location.pathname}#s=${await encodeShot(rec)}`;
+  const text = `Watch my Heliosling shot: ${rec.name}`;
+  if (navigator.share && MOBILE) {
+    try { await navigator.share({ title: rec.name, text, url }); } catch {}
+    return;
+  }
+  try { await navigator.clipboard.writeText(url); toast('Link copied. Anyone who opens it gets to watch your shot.'); }
+  catch { prompt('Copy this link to share your shot:', url); }
+}
+
+// someone sent you a shot: watch it, then choose whether to keep it
+function keepSharedShot(rec) {
+  reelBar(`<span class="rb-save">${icon('bookmark')}<span><b>Keep this shot?</b> Save it to your shots</span></span>`, [
+    ['No', () => { $('#replaybar').hidden = true; }],
+    ['Save', () => {
+      $('#replaybar').hidden = true;
+      store.set(SHOTS_KEY, [{ ...rec, id: 'shot-' + Date.now().toString(36), at: Date.now() }, ...savedShots()].slice(0, MAX_SHOTS));
+      toast('Saved. Find it under 🔖 Saved.');
+    }],
+  ]);
 }
 
 // Watch a saved shot's replays, then come back to the game exactly as it was.
@@ -725,7 +752,7 @@ function playShot(rec) {
   const m = rec.meta;
   const F = {
     id: m.id, name: m.name, shot: { host: m.host, hitId: m.target }, t0: sim.t, snap: sim.snapshot(), trail: trails.count,
-    userSpeed, hitT: m.hitDt != null ? sim.t + m.hitDt : null, target: m.target, fromSave: true,
+    userSpeed, hitT: m.hitDt != null ? sim.t + m.hitDt : null, target: m.target, fromSave: true, shared: rec.shared ? rec : null,
   };
   S.reel = { F, present, presentTrail: 0, tEnd: sim.t + m.dur, i: -1 };
   nextReel();
@@ -1998,6 +2025,12 @@ updateDock();
   if (hash) {
     try { applySave(await decodeShare(hash[1])); history.replaceState(null, '', location.pathname); return; }
     catch { toast('⚠ That share link looks broken. Here is a fresh solar system.'); }
+  }
+  const shot = location.hash.match(/#s=([\w-]+)/);
+  if (shot) {
+    history.replaceState(null, '', location.pathname);
+    try { const rec = await decodeShot(shot[1]); playShot({ ...rec, shared: true }); return; }
+    catch { toast('⚠ That shot link looks broken. Here is a fresh solar system.'); }
   }
   const auto = store.get('gm.autosave');
   if (auto?.sim?.bodies?.some((b) => b.spawned)) showResumePill(auto);
