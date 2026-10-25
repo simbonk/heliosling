@@ -235,8 +235,9 @@ function updateCamera(dt, dtSim) {
     if (!S.slingCam) S.slingCam = { t: 0 };
     S.slingCam.t += dt;
     if (S.slingCam.t > 1.2) S.slingCam.settled = true;
-    camera.position.lerp(v.pos, S.slingCam.settled ? 1 - Math.exp(-dt * 12) : a);
-    controls.target.lerp(v.target, S.slingCam.settled ? 1 - Math.exp(-dt * 12) : a);
+    const k = S.slingCam.settled ? 1 - Math.exp(-dt * 6) : a;
+    camera.position.lerp(v.pos, k);
+    controls.target.lerp(v.target, k);
     camera.lookAt(controls.target);
     controls.enabled = false;
     rig.lastFocus = null;
@@ -1147,13 +1148,14 @@ function renderAimBar() {
     let body = '';
     if (h.mode === 'place') body = `<div class="aim-msg"><b>${s.icon} ${s.name}</b> Tap anywhere in space to place it.</div>`;
     if (h.mode === 'heading') body = `
-      <div class="aim-msg"><b>Pull back</b> and <b>let go</b>. Pull to one side to aim the other way; pull further to fling it faster. Turn the slingshot with the compass, or drag the sky.</div>
-      <label class="tilt">Tilt <input type="range" min="-80" max="80" step="1" id="tilt" aria-label="Tilt above or below the planets' plane"><output id="tilt-val"></output></label>
+      <div class="aim-msg"><b>Pull back &amp; let go.</b> Sideways aims, further is faster. Turn with the compass.</div>
+      <div class="aim-row"><label class="tilt">Tilt <input type="range" min="-80" max="80" step="1" id="tilt" aria-label="Tilt above or below the planets' plane"><output id="tilt-val"></output></label><button data-a="back" class="aim-back">Back</button></div>
       <div class="aim-live"></div>`;
     const back = h.mode === 'place' ? 'Cancel' : 'Back';
     const next = '';
-    bar.innerHTML = `<div class="wiz-steps">${steps}</div>${body}
-      <div class="aim-actions"><button data-a="back">${back}</button>${next ? `<button data-a="next" class="primary">${next}</button>` : ''}</div>`;
+    // the slingshot step keeps Back beside the tilt, so the panel leaves room to see the shot
+    const actions = h.mode === 'heading' ? '' : `<div class="aim-actions"><button data-a="back">${back}</button>${next ? `<button data-a="next" class="primary">${next}</button>` : ''}</div>`;
+    bar.innerHTML = `<div class="wiz-steps">${steps}</div>${body}${actions}`;
     // a step change swallows taps for a moment so a repeated tap can't skip straight to Launch
     const guarded = (fn) => () => { const n = performance.now(); if (n - (S.stepAt || 0) < 350) return; S.stepAt = n; fn(); };
     bar.querySelector('[data-a=back]').onclick = guarded(() => aim.back());
@@ -1170,11 +1172,11 @@ function renderAimBar() {
   if (tv) tv.textContent = `${h.elev.toFixed(0)}°`;
   const live = bar.querySelector('.aim-live');
   if (live) {
-    if (!h.aiming) live.innerHTML = '<span class="muted">The ring shows the pull for a circular orbit; the dashed ring is escape speed.</span>';
+    if (!h.aiming) live.innerHTML = '<span class="muted">Solid ring: circular orbit. Dashed: escape speed.</span>';
     else {
       const hit = h.hit ? `<span class="bad">⚠ Hits ${h.hit} in ${h.hitIn < 1 ? `${(h.hitIn * 12).toFixed(1)} months` : `${h.hitIn.toFixed(1)} yr`}</span>` : '<span class="muted">No impact predicted</span>';
       const kind = Math.abs(h.mult - 1) < 0.01 ? 'circular orbit' : Math.abs(h.mult - Math.SQRT2) < 0.01 ? 'escape speed' : `${h.mult.toFixed(2)}× orbit speed`;
-      live.innerHTML = `${hit}<br><span class="muted">Speed <b class="mono">${h.speed.toFixed(1)} km/s</b> relative to ${h.host} · ${kind}</span>`;
+      live.innerHTML = `${hit} · <span class="muted"><b class="mono">${h.speed.toFixed(1)} km/s</b> · ${kind}</span>`;
     }
   }
 }
@@ -1184,7 +1186,8 @@ function renderAimBar() {
 const viewShift = { cur: 0, goal: 0 };
 function frameAim() {
   if (!aim.active) { viewShift.goal = 0; return; }
-  const top = Math.max($('.topbar').getBoundingClientRect().bottom, $('#telemetry').getBoundingClientRect().bottom) + 8;
+  const cmp = $('.sling-compass');
+  const top = Math.max($('.topbar').getBoundingClientRect().bottom, $('#telemetry').getBoundingClientRect().bottom, cmp && !cmp.hidden ? cmp.getBoundingClientRect().bottom : 0) + 8;
   const bottom = $('.dock').getBoundingClientRect().top - 8;
   viewShift.goal = Math.max(0, innerHeight / 2 - (top + bottom) / 2);
 }

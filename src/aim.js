@@ -190,15 +190,20 @@ export class Aim {
     this.refresh();
   }
 
-  // where the camera sits in the slingshot view: just behind and above the object, looking ahead
+  // Where the camera sits in the slingshot view: behind and above the object, looking ahead and
+  // down so you see the neighbourhood it's heading into. While you pull it backs off, straight
+  // along the line to the object (so the object and slingshot stay put on screen), until the
+  // whole predicted path fits.
   slingView() {
     const R = Math.max(displayRadius(this.spec, this.app.sim.scaleMode), 1e-5);
-    const D = R * 20;
+    const hp = this.app.toRender(this.host(), new THREE.Vector3());
+    let D = Math.max(R * 25, hp.distanceTo(this.P) * 1.5);
+    if (this.path.visible && this.pathExtent) D = Math.max(D, Math.min(this.pathExtent * 2.6, 90));
     const f = this.forward();
-    return {
-      pos: this.P.clone().addScaledVector(f, -D).addScaledVector(UP, D * 0.35),
-      target: this.P.clone().addScaledVector(f, D * 1.2).addScaledVector(UP, -D * 0.2),
-    };
+    const e = THREE.MathUtils.degToRad(40), look = THREE.MathUtils.degToRad(36);
+    const pos = this.P.clone().addScaledVector(f, -D * Math.cos(e)).addScaledVector(UP, D * Math.sin(e));
+    const ahead = f.clone().multiplyScalar(Math.cos(look)).addScaledVector(UP, -Math.sin(look));
+    return { pos, target: pos.clone().addScaledVector(ahead, D) };
   }
 
   // Directions worth facing: along the orbit, in toward what it orbits, the nearest few
@@ -557,12 +562,15 @@ export class Aim {
     const pos = this.path.geometry.attributes.position.array, col = this.path.geometry.attributes.color.array;
     const c = new THREE.Color(this.spec.kind === 'blackhole' ? '#ffb070' : this.spec.color).lerp(new THREE.Color('#ffffff'), 0.3);
     const out = new THREE.Vector3();
+    let ext = 0;
     res.pts.forEach((p, i) => {
       this.app.predictedToRender(p, out);
+      ext = Math.max(ext, out.distanceTo(this.P));
       pos.set([out.x, out.y, out.z], i * 3);
       const a = 1 - (i / res.pts.length) * 0.75;
       col.set([c.r * a, c.g * a, c.b * a], i * 3);
     });
+    this.pathExtent = ext;
     this.path.geometry.setDrawRange(0, res.pts.length);
     this.path.geometry.attributes.position.needsUpdate = true;
     this.path.geometry.attributes.color.needsUpdate = true;

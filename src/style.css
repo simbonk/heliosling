@@ -246,6 +246,9 @@ body.aiming #info { display: none; }
 .tilt { display: flex; align-items: center; gap: 6px; flex: 1; font-size: 11px; color: var(--muted); }
 .tilt input { flex: 1; accent-color: var(--accent); }
 .aim-actions { display: flex; gap: 6px; }
+.aim-row { display: flex; align-items: center; gap: 10px; }
+.aim-back { flex: none; height: 38px; padding: 0 18px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.05); font-weight: 500; }
+.aim-live { font-size: 12px; line-height: 1.4; }
 .aim-actions button { flex: 1; height: 48px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.05); font-weight: 500; }
 #aimbar button, .chip { touch-action: manipulation; -webkit-tap-highlight-color: transparent; transition: transform 0.08s, filter 0.08s; }
 #aimbar button.pressed, .chip.pressed { transform: scale(0.95); filter: brightness(1.35); }
