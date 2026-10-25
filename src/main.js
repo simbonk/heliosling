@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import './style.css';
+import { inject } from '@vercel/analytics';
 import { Sim } from './physics.js';
 import { SPAWNABLES, KMS_PER_AUYR, START_YEAR, PLANETS } from './data.js';
 import { createRenderer, makeStarfield, BodyViews, Trails, Belt, SpaceDust, Effects } from './render.js';
@@ -13,6 +14,9 @@ import { buildSave, downloadJSON, readFile, decodeShare, store } from './save.js
 import { planetTexture, earthNightTexture } from './textures.js';
 import { icon, orb } from './icons.js';
 import { $, el, modal, closeModal, sheet, toast as popToast, fmtMass, fmtNum, installFastTap } from './ui.js';
+
+// Initialize Vercel Web Analytics
+inject();
 
 const MOBILE = matchMedia('(pointer: coarse)').matches || innerWidth < 760;
 const DRIFT_DIR = new THREE.Vector3(0.5, Math.sqrt(3) / 2, 0); // ~60° to the ecliptic, like the real Sun
