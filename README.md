@@ -17,9 +17,13 @@ occasional extinction-level fireball. It runs in your browser, works best on a p
    to one side to aim the other way. Drag the sky to look around and tip the shot up or down. The solid ring
    is the speed for a neat circular orbit and the dashed ring is escape speed. A ghost path shows where it is going.
 4. **Watch.** The camera chases your shot, then plays it back from the side and from above, plus from the
-   target's point of view if you hit something. Save the good ones, rewatch them from the 🔖 button, and share any of them as a link that plays the shot for whoever opens it.
+   target's point of view if you hit something. Save the good ones and rewatch them from the 🔖 button.
+5. **Share.** Every saved shot has a share button. The link carries the whole shot, so whoever opens it
+   watches exactly what you saw, then can keep it.
 
-Made a mess? **Rewind** winds back 10 seconds per press, and **Reset** puts the solar system back to today. New here? The app offers a quick **tour** on your first visit, and it lives in the menu after that.
+**Rewind** winds back 10 seconds per press. Anything you launched in that time launches again when the clock
+gets back there, so you can watch it twice. **Reset** puts the solar system back to today. New here? The app
+offers a quick **tour** on your first visit, and it lives in the menu after that.
 
 ## Three ways to look at it
 
@@ -33,8 +37,9 @@ Made a mess? **Rewind** winds back 10 seconds per press, and **Reset** puts the 
 - Throw a **black hole** through the inner planets and watch it eat them.
 - Drop a **Sun twin** nearby and turn the solar system into a binary star.
 - Knock **Earth** out of the habitable zone, then try to nudge it back before the oceans boil or freeze.
-- Thread a **comet** past Jupiter for a gravity slingshot out of the solar system.
-- Not sure where to start? Watch the **trick shots** in the menu, or take the **tour**.
+- Park a **Rogue Moon** right next to Jupiter and give it a moon of its own.
+- Not sure where to start? Watch the **trick shots** in the menu, or take the **tour**. Made a good one?
+  [Suggest it](https://github.com/simbonk/heliosling/issues/new?title=Trick%20shot%3A%20) with its share link.
 
 ## How real is it?
 
@@ -48,10 +53,14 @@ Real enough to be surprising, fake enough to be fun.
 
 **Pseudo-science, on purpose:**
 - **Sizes:** planets and the Sun are drawn hundreds of times too big so you can actually see them, and they
-  collide at that size. That makes planets juicy targets. In real space they are specks, and almost
-  everything misses. Turn on *True scale* under Layers to see how empty space really is.
-- **Moons:** because Earth is drawn so big, its real moon zone sits inside its drawn ball. Parking things in
-  orbit around planets doesn't really work yet.
+  collide at that size. That makes planets juicy targets. At their real size almost everything would miss.
+  To see how empty space really is, open the Layers panel (the ◫ button on the right) and turn on
+  *True scale*. Planets shrink to their real size, which from this distance is too small to see, so only a
+  glowing marker shows where each one is, and hits get much harder.
+- **Moons:** because the inner planets are drawn so big, the zone where a moon could orbit them sits inside
+  their drawn ball, so Earth can't keep a moon. Jupiter and Saturn are big enough: a moon placed close beside
+  them at the right speed will orbit. Real captures, where a passing body falls in and stays, almost never
+  happen with gravity alone, here or in real life.
 - **Collisions:** two bodies that touch just merge. There are no fragments, rings or tidal shredding.
 - **Climate:** Earth's temperature is a one-line toy model based on how much starlight it gets.
 - **The Milky Way view:** a pretty schematic, not a real galactic orbit.
@@ -74,12 +83,15 @@ as is.
 
 ### Under the hood
 
-- **Stack:** Vite and three.js, with no image assets. Every texture, shader and sound is generated in the browser.
+- **Stack:** Vite and three.js. Apart from the app icon, there are no image or sound files: every texture,
+  shader and sound is generated in the browser.
 - **Units:** AU, years and solar masses (G = 4π²).
 - **Integrator:** leapfrog with an adaptive timestep. It is time-reversible, which is what makes rewind
   and replays exact.
-- **Saves:** small JSON snapshots of masses, positions and velocities. The browser also autosaves and
-  offers to resume.
+- **Saves:** small JSON snapshots of masses, positions and velocities, about 5 KB per saved shot. The browser
+  also autosaves and offers to resume. Share links are the same snapshot, deflated into the URL (about 2 KB),
+  so nothing is stored on a server.
+- **Analytics:** anonymous page-view counts through Vercel Web Analytics. No cookies and no accounts.
 
 | File | What it does |
 | --- | --- |
@@ -90,8 +102,13 @@ as is.
 | `src/shaders.js` | Gravitational lensing, Earth's day/night side, gravity-well grid |
 | `src/textures.js` | Procedural planet textures |
 | `src/galaxy.js` | Milky Way view |
-| `src/missions.js` | Event wording |
+| `src/missions.js` | Event wording and impact-energy comparisons |
 | `src/trickshots.json` | The trick shots in the menu |
+| `src/ui.js`, `src/icons.js` | Sheets, modals, toasts and line icons |
 | `src/audio.js` | Procedural sound |
-| `src/save.js` | Save files and local storage |
-| `src/main.js` | App state, camera, HUD and main loop |
+| `src/save.js` | Save files, share links and local storage |
+| `src/main.js` | App state, camera, HUD, tour, rewind and main loop |
+
+## License
+
+[MIT](LICENSE). Use it, fork it, make it weirder.
