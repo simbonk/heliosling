@@ -29,7 +29,7 @@ const settings = Object.assign({
   drift: 4, // AU/yr, stylised galactic drift for the helix view
   trailLength: 0.6,
   belt: true,
-  slowmo: true,
+  slowmo: false,
   lensing: true,
   bloom: true,
   labels: true,

@@ -55,9 +55,7 @@ button:disabled { opacity: 0.35; cursor: default; }
 .topbar > * { pointer-events: auto; }
 .brand { grid-area: brand; display: flex; align-items: center; gap: 9px; font-weight: 500; letter-spacing: 0.04em; font-size: 12px; line-height: 1.15; }
 .brand-text { display: none; } /* phones: logo only, the name is on larger screens */
-.brand b { color: var(--accent); font-weight: 600; }
-.logo { width: 22px; height: 22px; border-radius: 50%; background: radial-gradient(circle at 40% 40%, #fff3c4, #ffb347 45%, rgba(255, 122, 26, 0) 72%); box-shadow: 0 0 18px #ff9a3a88; position: relative; }
-.logo::after { content: ''; position: absolute; inset: 7px -4px; border: 1.5px solid var(--accent); border-radius: 50%; transform: rotate(-25deg); }
+.logo { width: 30px; height: 30px; border-radius: 8px; box-shadow: 0 0 16px #ff9a3a44; flex: none; }
 .top-actions { grid-area: actions; justify-self: end; display: flex; gap: 6px; }
 .icon svg { width: 19px; height: 19px; fill: var(--text); }
 /* phones: sound lives in the menu so the top bar fits on one row */
@@ -374,7 +372,7 @@ body.dropping #drop-hint { display: grid; }
   .chip { width: 78px; }
   .arsenal { justify-content: center; mask-image: none; }
   .brand { font-size: 13px; }
-  .brand-text { display: flex; flex-direction: row; gap: 0.35em; }
+  .brand-text { display: block; font-weight: 600; }
   .aim-actions { justify-content: flex-end; }
   .aim-actions button { flex: 0 0 auto; padding: 0 22px; }
   .sheet-scrim { place-items: stretch end; }
