@@ -402,3 +402,18 @@ body.cinema .label-layer { opacity: 0; transition: opacity 0.4s; }
 body.cinema #replaybar { background: rgba(0, 0, 0, 0.55); border-color: rgba(255, 179, 71, 0.35); }
 body.cinema .dock { z-index: 16; }
 
+
+/* slingshot compass: turn the slingshot to face somewhere else */
+.sling-compass { position: fixed; left: 50%; transform: translateX(-50%); z-index: 14; display: flex; align-items: center; gap: 6px; width: min(380px, calc(100vw - 24px)); }
+.sling-compass[hidden] { display: none; }
+.cmp-turn { flex: none; width: 40px; height: 40px; border-radius: 50%; border: 1px solid rgba(140, 180, 255, 0.35); background: rgba(10, 16, 30, 0.75); color: #cfe0ff; font-size: 20px; backdrop-filter: blur(6px); }
+.cmp-strip { position: relative; flex: 1; height: 46px; border-radius: 10px; background: rgba(10, 16, 30, 0.7); border: 1px solid rgba(140, 180, 255, 0.25); overflow: hidden; touch-action: none; cursor: ew-resize; backdrop-filter: blur(6px); -webkit-mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent); mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent); }
+.cmp-ticks { position: absolute; inset: 0; }
+.cmp-tick { position: absolute; bottom: 0; width: 1px; height: 7px; background: rgba(160, 190, 255, 0.45); }
+.cmp-tick.big { height: 12px; background: rgba(160, 190, 255, 0.8); }
+.cmp-needle { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #ffd36b; box-shadow: 0 0 6px #ffd36b; }
+.cmp-mark { position: absolute; top: 3px; transform: translateX(-50%); white-space: nowrap; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 8px; color: #cfe0ff; background: rgba(60, 90, 150, 0.45); cursor: pointer; }
+.cmp-mark.host { color: #ffe3a3; background: rgba(150, 110, 40, 0.5); }
+.cmp-mark.body { color: #bff0d0; background: rgba(40, 120, 80, 0.45); }
+.cmp-mark.r2 { top: 22px; }
+.cmp-mark.on { outline: 1.5px solid #ffd36b; }

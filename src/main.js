@@ -92,7 +92,7 @@ function updateTracker(t) {
   tracker.scale.setScalar(Math.max(S.cinema ? 0.05 : 0.065, fit) * (1 + Math.sin(t * 5) * 0.1));
   tracker.material.rotation = t * 1.4;
   // up close the body speaks for itself, and a big ring gets heavy: fade it back
-  tracker.material.opacity = (S.cinema ? 0.6 : 0.95) * THREE.MathUtils.clamp(0.16 / fit, 0.3, 1);
+  tracker.material.opacity = (S.cinema ? 0.6 : 0.95) * THREE.MathUtils.clamp(0.16 / fit, 0.3, 1) * (rig.mode === 'ride' ? 0.35 : 1); // riding behind it, it's already front and centre
 }
 const galaxy = new GalaxyView(scene, { stars: MOBILE ? 30000 : 60000 });
 const grid = makeGravityGrid();
@@ -228,6 +228,21 @@ function fit(wide = S.fitWide) {
 }
 
 function updateCamera(dt, dtSim) {
+  // the slingshot view: stand behind the object, looking where it'll go
+  if (aim.mode === 'heading' && S.view !== 'galaxy') {
+    const v = aim.slingView();
+    const a = S.slingCam ? 1 - Math.exp(-dt * 8) : 1 - Math.exp(-dt * 3.5);
+    if (!S.slingCam) S.slingCam = { t: 0 };
+    S.slingCam.t += dt;
+    if (S.slingCam.t > 1.2) S.slingCam.settled = true;
+    camera.position.lerp(v.pos, S.slingCam.settled ? 1 - Math.exp(-dt * 12) : a);
+    controls.target.lerp(v.target, S.slingCam.settled ? 1 - Math.exp(-dt * 12) : a);
+    camera.lookAt(controls.target);
+    controls.enabled = false;
+    rig.lastFocus = null;
+    return;
+  }
+  if (S.slingCam) { S.slingCam = null; controls.enabled = rig.mode !== 'ride'; }
   if (rig.mode === 'ride' && S.selected && S.view !== 'galaxy') {
     const b = sim.get(S.selected);
     if (!b) { setCamMode('system'); return; }
@@ -417,11 +432,11 @@ sim.on((ev) => {
 });
 
 // ---------------------------------------------------------------- launch follow-up
-// Angry Birds style: after a launch the camera chases the shot live for up to ~10 s (or until
+// Angry Birds style: after a launch the camera rides behind the shot like a cannonball, live, for up to ~10 s (or until
 // it hits something and the dust settles), then the same flight re-runs three times from
 // different angles, about 10 s each, before handing back to the present. Skippable throughout.
 const REEL_SECONDS = 10;
-const REEL_CAMS = ['Chase cam', 'Side view', 'Top-down'];
+const REEL_CAMS = ['Side view', 'Top-down', 'From the target'];
 
 function startFlight(b, shot) {
   const F = {
@@ -432,11 +447,9 @@ function startFlight(b, shot) {
   // pace it so the predicted impact lands at ~7 s, or ~1 predicted path plays in 10 s
   const years = shot.hitIn ? shot.hitIn / 0.7 : shot.years || 1;
   S.speed = THREE.MathUtils.clamp(years / REEL_SECONDS, 0.002, 50);
+  // cannonball cam: carry straight on from the slingshot view, riding just behind the shot
   S.selected = b.id;
-  setCamMode('follow');
-  const host = sim.get(shot.host) || sim.dominantStar(b);
-  const d = host ? Math.hypot(b.x - host.x, b.y - host.y, b.z - host.z) : 1;
-  rig.offsetGoal = camera.position.clone().sub(controls.target).setLength(THREE.MathUtils.clamp(d * 0.5, sim.radius(b) * 12, 60));
+  setCamMode('ride');
   document.body.classList.add('flying');
   reelBar(`<span><b>🎯 In flight</b> ${b.name}</span>`, [['Skip ▸', () => endFlight()]]);
 }
@@ -506,7 +519,6 @@ function aimReelCamera(i) {
   const F = S.reel.F;
   const shotBody = sim.get(F.id);
   const focus = reelFocus(F);
-  if (i === 0 && shotBody) { S.selected = F.id; setCamMode('ride'); return; }
   S.selected = focus?.id || F.id;
   setCamMode('follow');
   if (!focus || !shotBody) return;
@@ -514,6 +526,12 @@ function aimReelCamera(i) {
   const gap = ab.length();
   const Ra = sim.radius(focus);
   if (i === 2) {
+    // from just behind what it's heading for, watching it come in
+    const back = ab.clone().normalize().negate().add(new THREE.Vector3(0, 0.3, 0)).normalize();
+    rig.offsetGoal = back.multiplyScalar(THREE.MathUtils.clamp(Ra * 7, Ra * 5, gap * 0.8 + Ra * 2));
+    return;
+  }
+  if (i === 1) {
     // straight down on the whole flight
     const D = THREE.MathUtils.clamp(gap * 2.6 + Ra * 4, Ra * 8, 400);
     rig.offsetGoal = new THREE.Vector3(0, D, D * 0.001);
@@ -1129,7 +1147,7 @@ function renderAimBar() {
     let body = '';
     if (h.mode === 'place') body = `<div class="aim-msg"><b>${s.icon} ${s.name}</b> Tap anywhere in space to place it.</div>`;
     if (h.mode === 'heading') body = `
-      <div class="aim-msg"><b>Pull it back</b> like a slingshot and <b>let go</b>. It flies the opposite way, faster the further you pull. Tap elsewhere to move it.</div>
+      <div class="aim-msg"><b>Pull back</b> and <b>let go</b>. Pull to one side to aim the other way; pull further to fling it faster. Turn the slingshot with the compass, or drag the sky.</div>
       <label class="tilt">Tilt <input type="range" min="-80" max="80" step="1" id="tilt" aria-label="Tilt above or below the planets' plane"><output id="tilt-val"></output></label>
       <div class="aim-live"></div>`;
     const back = h.mode === 'place' ? 'Cancel' : 'Back';
@@ -1161,23 +1179,14 @@ function renderAimBar() {
   }
 }
 
-// While aiming, centre the view on the free space between the top bar and the wizard, and
-// back the camera out until the aiming ring around the object fits, so nothing hides it.
+// While aiming, centre the view on the free space between the top bar and the wizard
+// (the slingshot view then frames the object itself, in that space).
 const viewShift = { cur: 0, goal: 0 };
 function frameAim() {
   if (!aim.active) { viewShift.goal = 0; return; }
   const top = Math.max($('.topbar').getBoundingClientRect().bottom, $('#telemetry').getBoundingClientRect().bottom) + 8;
   const bottom = $('.dock').getBoundingClientRect().top - 8;
   viewShift.goal = Math.max(0, innerHeight / 2 - (top + bottom) / 2);
-  if (aim.mode !== 'heading') return;
-  // offsets from the view centre don't depend on the shift, and zooming out shrinks them by k
-  const p = aim.P.clone().project(camera);
-  const dx = Math.abs((p.x * innerWidth) / 2);
-  const dy = Math.abs((p.y * innerHeight) / 2);
-  const margin = 84 + 40; // aiming ring radius plus its knob and readout
-  const halfW = Math.max(40, innerWidth / 2 - margin), halfH = Math.max(40, (bottom - top) / 2 - margin);
-  const k = Math.max(dx / halfW, dy / halfH);
-  if (k > 1.02 && p.z < 1) rig.offsetGoal = camera.position.clone().sub(controls.target).multiplyScalar(Math.min(k * 1.1, 20));
 }
 aim.app.onPlaced = () => requestAnimationFrame(frameAim);
 function applyViewShift(dt) {
@@ -1450,7 +1459,7 @@ function openMenu() {
       <input type="range" id="set-drift" min="0" max="1" step="0.001"></label>
     <label class="row">Contrail length <input type="range" id="set-trail" min="0.05" max="1" step="0.01"></label>
     <label class="row check"><input type="checkbox" id="set-belt"> Asteroid belt</label>
-    <label class="row check"><input type="checkbox" id="set-reels"> Chase cam and 3 replays after each launch</label>
+    <label class="row check"><input type="checkbox" id="set-reels"> Cannonball cam and 3 replays after each launch</label>
     <label class="row check"><input type="checkbox" id="set-slowmo"> Auto slow-mo on close calls</label>
     <label class="row check"><input type="checkbox" id="set-lens"> Gravitational lensing</label>
     <label class="row check"><input type="checkbox" id="set-bloom"> Glow (bloom)</label>

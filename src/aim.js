@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
-import { G, KMS_PER_AUYR } from './data.js';
+import { G, KMS_PER_AUYR, displayRadius } from './data.js';
 import { glowTexture } from './textures.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -14,9 +14,11 @@ const SVGNS = 'http://www.w3.org/2000/svg';
 
 // Launching, Angry Birds style and built for touch first:
 //   1. place   - tap exactly where the object should start (tap again anywhere to move it)
-//   2. heading - a slingshot appears around it: pull back and let go. Pull length sets the speed
-//                as a multiple of the circular-orbit speed at that spot; a ghost trajectory shows
-//                where it will go while you pull.
+//   2. heading - first person: the camera swings in behind the object (shown see-through) with a
+//                slingshot holding it in front of you. Pull back and let go: left/right aims, pull
+//                length sets the speed as a multiple of the circular-orbit speed at that spot, and a
+//                ghost trajectory shows where it will go while you pull. A compass strip turns the
+//                slingshot to face somewhere else (drag it, tap a marker, or drag the sky).
 export class Aim {
   constructor(app) {
     this.app = app;
@@ -28,6 +30,8 @@ export class Aim {
     this.speed = 0; // km/s relative to host
     this.circ = 0; // circular-orbit speed at this spot, km/s
     this.mult = 1; // speed as a multiple of circ: the knob's distance from the centre
+    this.phi = 0; // which way the slingshot faces, as an angle in the planets' plane
+    this.phiGoal = null;
     this.normal = UP.clone();
     this.lastPredict = 0;
     this.hitId = null;
@@ -44,6 +48,10 @@ export class Aim {
     this.halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTex(), sizeAttenuation: false, depthTest: false, transparent: true }));
     this.halo.renderOrder = 11;
     this.ghost.add(this.halo);
+    // the object itself, see-through so you can aim past it
+    this.body = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 20), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.32, depthWrite: false }));
+    this.bodyRim = new THREE.Mesh(new THREE.SphereGeometry(1.04, 32, 20), new THREE.MeshBasicMaterial({ wireframe: true, transparent: true, opacity: 0.18, depthWrite: false }));
+    this.body.add(this.bodyRim);
 
     const n = 400;
     const pg = new THREE.BufferGeometry();
@@ -67,11 +75,17 @@ export class Aim {
     this.grid.material.opacity = 0.22;
     this.grid.material.depthWrite = false;
 
-    this.group.add(this.ghost, this.path, this.impact, this.grid);
+    this.group.add(this.ghost, this.body, this.path, this.impact, this.grid);
     this.makeDial();
 
     const dom = app.renderer.domElement;
-    dom.addEventListener('pointerdown', (e) => { this.tapStart = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId }; });
+    dom.addEventListener('pointerdown', (e) => { this.tapStart = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId, phi: this.phi }; });
+    // in the slingshot view, dragging the sky sideways turns the slingshot
+    dom.addEventListener('pointermove', (e) => {
+      const t = this.tapStart;
+      if (this.mode !== 'heading' || !t || t.id !== e.pointerId || this.dragging) return;
+      this.turnTo(t.phi - (e.clientX - t.x) * 0.006);
+    });
     dom.addEventListener('pointerup', (e) => this.canvasUp(e));
     window.addEventListener('keydown', (e) => this.key(e));
   }
@@ -100,7 +114,7 @@ export class Aim {
     this.guideEsc = mk('text', { x: c, y: c + rEsc + 14, class: 'dial-text esc' }, this.guides);
     this.guideEsc.textContent = 'escape';
     // the fork: a Y whose arms hold the bands, sitting just below the object
-    mk('path', { d: `M ${c} ${c + 62} L ${c} ${c + 30} M ${c} ${c + 30} Q ${c - 4} ${c + 14} ${c - 24} ${c - 2} M ${c} ${c + 30} Q ${c + 4} ${c + 14} ${c + 24} ${c - 2}`, class: 'sling-fork' });
+    mk('path', { d: `M ${c} ${c + 150} L ${c} ${c + 30} M ${c} ${c + 30} Q ${c - 4} ${c + 14} ${c - 24} ${c - 2} M ${c} ${c + 30} Q ${c + 4} ${c + 14} ${c + 24} ${c - 2}`, class: 'sling-fork' });
     this.bandL = mk('line', { x1: c - 24, y1: c - 2, x2: c, y2: c, class: 'sling-band' });
     this.bandR = mk('line', { x1: c + 24, y1: c - 2, x2: c, y2: c, class: 'sling-band' });
     this.pouch = mk('circle', { cx: c, cy: c, r: 26, class: 'sling-pouch' });
@@ -111,6 +125,7 @@ export class Aim {
     root.appendChild(svg);
     document.body.appendChild(root);
     this.dial = { root, c };
+    this.makeCompass();
 
     this.grab.addEventListener('pointerdown', (e) => {
       if (this.mode !== 'heading') return;
@@ -133,11 +148,11 @@ export class Aim {
       if (m !== this.mult && (m === 1 || m === Math.SQRT2)) this.app.audio.click(1.4);
       if (r > KNOB_MAX) { this.pull.setLength(KNOB_MAX); r = KNOB_MAX; }
       this.mult = m;
-      // fly away from the finger: the world point under it, mirrored through the object
-      const hit = this.planeHit(e, this.P);
-      if (hit) {
-        const d = this.P.clone().sub(hit).projectOnPlane(this.normal);
-        if (d.lengthSq() > 0) this.dir.copy(d.normalize());
+      // fly away from the finger: pulling straight down shoots straight ahead, pulling
+      // down-left shoots off to the right, and so on
+      if (this.pull.lengthSq() > 1) {
+        const a = Math.atan2(-this.pull.x, this.pull.y);
+        this.dir.copy(this.forward()).multiplyScalar(Math.cos(a)).addScaledVector(this.right(), Math.sin(a)).normalize();
       }
       this.speed = this.mult * this.circ;
       this.refresh();
@@ -153,10 +168,124 @@ export class Aim {
         root.classList.add('snap');
         setTimeout(() => root.classList.remove('snap'), 250);
         this.fire();
-      } else this.refresh(true);
+      } else { this.dir.copy(this.forward()); this.refresh(true); }
     };
     this.grab.addEventListener('pointerup', release);
     this.grab.addEventListener('pointercancel', release);
+  }
+
+  // ---------------------------------------------------------- facing
+  forward() { return new THREE.Vector3(Math.cos(this.phi), 0, Math.sin(this.phi)); }
+  right() { return new THREE.Vector3(-Math.sin(this.phi), 0, Math.cos(this.phi)); }
+  // the signed angle (right is positive) from where the slingshot faces to a direction
+  angleTo(d) { return Math.atan2(d.dot(this.right()), d.dot(this.forward())); }
+
+  turnTo(phi, animate = false) {
+    if (animate) { this.phiGoal = phi; return; }
+    const step = Math.round(THREE.MathUtils.radToDeg(phi) / 15) !== Math.round(THREE.MathUtils.radToDeg(this.phi) / 15);
+    this.phi = phi;
+    this.phiGoal = null;
+    if (!this.dragging) this.dir.copy(this.forward());
+    if (step) this.app.audio.click(1.6);
+    this.refresh();
+  }
+
+  // where the camera sits in the slingshot view: just behind and above the object, looking ahead
+  slingView() {
+    const R = Math.max(displayRadius(this.spec, this.app.sim.scaleMode), 1e-5);
+    const D = R * 20;
+    const f = this.forward();
+    return {
+      pos: this.P.clone().addScaledVector(f, -D).addScaledVector(UP, D * 0.35),
+      target: this.P.clone().addScaledVector(f, D * 1.2).addScaledVector(UP, -D * 0.2),
+    };
+  }
+
+  // Directions worth facing: along the orbit, in toward what it orbits, the nearest few
+  // bodies, then back and out.
+  compassMarks() {
+    const sim = this.app.sim, host = this.host();
+    const hp = new THREE.Vector3(), v = new THREE.Vector3();
+    this.app.toRender(host, hp);
+    const flat = (d) => (d.y = 0, d.lengthSq() > 1e-12 ? d.normalize() : null);
+    const inward = flat(hp.clone().sub(this.P));
+    const marks = [];
+    if (inward) {
+      const pro = UP.clone().cross(inward).negate();
+      marks.push({ label: 'Orbit ▸', d: pro, cls: 'pro' }, { label: `${host.kind === 'star' ? '☀' : '●'} ${host.name}`, d: inward, cls: 'host' });
+    }
+    const near = sim.bodies.filter((b) => b.alive && b.id !== host.id && b.kind !== 'rock' && b.kind !== 'comet')
+      .map((b) => ({ b, d: this.app.toRender(b, v).distanceTo(this.P) })).sort((a, b) => a.d - b.d).slice(0, 3);
+    for (const { b } of near) {
+      const d = flat(this.app.toRender(b, v).clone().sub(this.P));
+      if (d) marks.push({ label: b.name, d, cls: 'body' });
+    }
+    // the less useful directions last: the strip drops whatever doesn't fit
+    if (inward) marks.push({ label: '◂ Retro', d: marks[0].d.clone().negate(), cls: 'pro' }, { label: 'Out ↗', d: inward.clone().negate(), cls: 'pro' });
+    return marks;
+  }
+
+  makeCompass() {
+    const box = document.createElement('div');
+    box.className = 'sling-compass';
+    box.hidden = true;
+    box.innerHTML = '<button class="cmp-turn" data-t="-1" aria-label="Turn left">⟲</button><div class="cmp-strip"><div class="cmp-ticks"></div><i class="cmp-needle"></i></div><button class="cmp-turn" data-t="1" aria-label="Turn right">⟳</button>';
+    document.body.appendChild(box);
+    const strip = box.querySelector('.cmp-strip');
+    box.querySelectorAll('.cmp-turn').forEach((b) => { b.onclick = () => this.turnTo((this.phiGoal ?? this.phi) + (+b.dataset.t * Math.PI) / 8, true); });
+    let drag = null;
+    strip.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      strip.setPointerCapture(e.pointerId);
+      drag = { id: e.pointerId, x: e.clientX, phi: this.phi, moved: false, mark: e.target.closest('.cmp-mark') };
+    });
+    strip.addEventListener('pointermove', (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const dx = e.clientX - drag.x;
+      if (Math.abs(dx) > 6) drag.moved = true;
+      if (drag.moved) this.turnTo(drag.phi - (dx / (strip.clientWidth / 2)) * Math.PI);
+    });
+    const up = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      // a tap on a marker swings round to face it
+      if (!drag.moved && drag.mark) this.turnTo(this.phi + +drag.mark.dataset.a, true);
+      drag = null;
+    };
+    strip.addEventListener('pointerup', up);
+    strip.addEventListener('pointercancel', up);
+    this.compass = { box, ticks: box.querySelector('.cmp-ticks'), strip };
+  }
+
+  renderCompass() {
+    const { box, ticks, strip } = this.compass;
+    const show = this.mode === 'heading';
+    box.hidden = !show;
+    if (!show) return;
+    // just under the top bar and telemetry, clear of the slingshot and the wizard
+    const top = Math.max(...['.topbar', '#telemetry'].map((q) => document.querySelector(q)?.getBoundingClientRect().bottom || 0));
+    box.style.top = `${top + 8}px`;
+    const W = strip.clientWidth / 2, deg = THREE.MathUtils.radToDeg(this.phi);
+    // only redraw when it turns, so a marker isn't swapped out from under a finger
+    const key = `${this.phi.toFixed(4)}|${W}|${this.marks?.length}`;
+    if (key === this.compass.key) return;
+    this.compass.key = key;
+    // the whole circle fits across the strip, with where it faces in the middle
+    const x = (a) => W + (a / Math.PI) * W;
+    let html = '';
+    for (let t = Math.ceil((deg - 180) / 30) * 30; t <= deg + 180; t += 30) html += `<i class="cmp-tick${t % 90 ? '' : ' big'}" style="left:${x(THREE.MathUtils.degToRad(t - deg)).toFixed(1)}px"></i>`;
+    // two rows, so markers close together don't sit on top of each other. The directions go
+    // in first so they always get a spot; nearby bodies fill in where there's room.
+    const rows = [[], []];
+    for (const m of this.marks || []) {
+      const a = this.angleTo(m.d);
+      const half = m.label.length * 3.6 + 9;
+      const px = THREE.MathUtils.clamp(x(a), half, 2 * W - half);
+      const row = rows.findIndex((r) => r.every(([l, h]) => px + half < l || px - half > h));
+      if (row < 0) continue;
+      rows[row].push([px - half, px + half]);
+      html += `<span class="cmp-mark ${m.cls}${row ? ' r2' : ''}${Math.abs(a) < 0.05 ? ' on' : ''}" data-a="${a.toFixed(4)}" style="left:${px.toFixed(1)}px">${m.label}</span>`;
+    }
+    ticks.innerHTML = html;
   }
 
   updateDial() {
@@ -180,6 +309,7 @@ export class Aim {
     this.dialSpeed.textContent = pulling ? `${this.speed.toFixed(this.speed < 10 ? 1 : 0)} km/s` : '';
     this.dialSpeed.setAttribute('x', ax);
     this.dialSpeed.setAttribute('y', ay - 10);
+    this.renderCompass();
   }
 
   // ---------------------------------------------------------- flow
@@ -194,6 +324,11 @@ export class Aim {
     this.prediction = null;
     this.ghost.material.color.set(spec.kind === 'blackhole' ? '#ff9a4a' : spec.color);
     this.halo.material.color.set(spec.kind === 'blackhole' ? '#ffc08a' : '#fff4c8');
+    const tint = spec.kind === 'blackhole' ? '#ff9a4a' : spec.color;
+    this.body.material.color.set(tint);
+    this.bodyRim.material.color.set(tint).lerp(new THREE.Color('#ffffff'), 0.5);
+    this.body.scale.setScalar(displayRadius(spec, this.app.sim.scaleMode));
+    this.body.visible = false;
     this.updateGrid();
     this.updateDial();
     this.app.onAimChange?.();
@@ -205,6 +340,7 @@ export class Aim {
     this.group.visible = false;
     this.impactLabel.visible = false;
     this.dial.root.hidden = true;
+    this.compass.box.hidden = true;
     this.app.controls.enabled = true;
     this.app.onAimChange?.();
   }
@@ -219,6 +355,7 @@ export class Aim {
     this.speed = shot.speed;
     this.mult = this.circ > 0 ? shot.speed / this.circ : 1;
     this.normal.copy(UP);
+    this.phi = Math.atan2(this.dir.z, this.dir.x);
     this.ghost.visible = true;
     this.setStep('heading');
   }
@@ -228,6 +365,20 @@ export class Aim {
     this.keyAim = false;
     this.pull = null;
     this.ghost.visible = step !== 'place';
+    this.body.visible = step === 'heading';
+    // in the slingshot view the see-through body does the showing; the glow just hints at it
+    this.ghost.material.opacity = step === 'heading' ? 0.25 : 1;
+    if (step === 'heading') {
+      // face the way it would orbit, flat in the planets' plane
+      this.normal.copy(UP);
+      this.dir.projectOnPlane(UP);
+      if (this.dir.lengthSq() < 1e-9) this.dir.set(1, 0, 0);
+      this.dir.normalize();
+      this.phi = Math.atan2(this.dir.z, this.dir.x);
+      this.phiGoal = null;
+      this.marks = this.compassMarks();
+      this.compass.key = null;
+    }
     if (step === 'place' || step === 'heading') { this.path.visible = false; this.impact.visible = false; this.impactLabel.visible = false; }
     this.refresh(true);
   }
@@ -247,6 +398,7 @@ export class Aim {
     if (!this.mode || !t || t.id !== e.pointerId || this.dragging) return;
     const moved = Math.hypot(e.clientX - t.x, e.clientY - t.y);
     if (moved > 8 || performance.now() - t.t > 450) return; // that was a camera drag
+    if (this.mode === 'heading') return;
     const view = new THREE.Vector3();
     this.app.camera.getWorldDirection(view);
     this.normal.copy(Math.abs(view.y) > 0.2 ? UP : view.clone().negate());
@@ -284,7 +436,7 @@ export class Aim {
 
   nudge(kind, amount) {
     this.keyAim = true;
-    if (kind === 'turn') this.dir.applyAxisAngle(this.normal, THREE.MathUtils.degToRad(amount));
+    if (kind === 'turn') { this.phi -= THREE.MathUtils.degToRad(amount); this.dir.copy(this.forward()); }
     if (kind === 'speed') { this.mult = Math.max(0.02, this.mult * (1 + amount)); this.speed = this.mult * this.circ; }
     if (kind === 'elev') this.elev = THREE.MathUtils.clamp(this.elev + THREE.MathUtils.degToRad(amount), -1.4, 1.4);
     this.app.audio.click(1 + this.speed / 300);
@@ -383,6 +535,7 @@ export class Aim {
     this.updateGrid();
     if (this.mode === 'place') { this.updateDial(); this.app.onAimChange?.(); return; }
     this.ghost.position.copy(this.P);
+    this.body.position.copy(this.P);
     const now = performance.now();
     // the ghost path appears while you pull (or tune the shot from the keyboard)
     const aiming = (this.pull && this.pull.length() > KNOB_MIN) || this.keyAim;
@@ -432,6 +585,11 @@ export class Aim {
 
   update(t) {
     if (!this.mode) return;
+    if (this.phiGoal !== null) {
+      const d = this.phiGoal - this.phi;
+      if (Math.abs(d) < 0.003) this.turnTo(this.phiGoal);
+      else { const g = this.phiGoal; this.turnTo(this.phi + d * 0.18); this.phiGoal = g; }
+    }
     this.impact.scale.setScalar(0.06 + Math.sin(t * 8) * 0.012);
     this.ghost.scale.setScalar(0.07 + Math.sin(t * 5) * 0.012);
     // the halo is a child of the ghost, so its scale is relative: breathe a little out of step
