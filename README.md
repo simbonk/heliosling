@@ -17,9 +17,9 @@ occasional extinction-level fireball. It runs in your browser, works best on a p
    to one side to aim the other way. Drag the sky to look around and tip the shot up or down. The solid ring
    is the speed for a neat circular orbit and the dashed ring is escape speed. A ghost path shows where it is going.
 4. **Watch.** The camera chases your shot, then plays it back from the side and from above, plus from the
-   target's point of view if you hit something. Save the good ones and rewatch them from the 🔖 button.
+   target's point of view if you hit something. Save the good ones, rewatch them from the 🔖 button, and share any of them as a link that plays the shot for whoever opens it.
 
-Made a mess? **Rewind** winds back 10 seconds per press, and **Reset** puts the solar system back to today.
+Made a mess? **Rewind** winds back 10 seconds per press, and **Reset** puts the solar system back to today. New here? The app offers a quick **tour** on your first visit, and it lives in the menu after that.
 
 ## Three ways to look at it
 
@@ -34,7 +34,7 @@ Made a mess? **Rewind** winds back 10 seconds per press, and **Reset** puts the 
 - Drop a **Sun twin** nearby and turn the solar system into a binary star.
 - Knock **Earth** out of the habitable zone, then try to nudge it back before the oceans boil or freeze.
 - Thread a **comet** past Jupiter for a gravity slingshot out of the solar system.
-- Rack up all 15 achievements.
+- Not sure where to start? Watch the **trick shots** in the menu, or take the **tour**.
 
 ## How real is it?
 
@@ -90,7 +90,8 @@ as is.
 | `src/shaders.js` | Gravitational lensing, Earth's day/night side, gravity-well grid |
 | `src/textures.js` | Procedural planet textures |
 | `src/galaxy.js` | Milky Way view |
-| `src/missions.js` | Achievements and event wording |
+| `src/missions.js` | Event wording |
+| `src/trickshots.json` | The trick shots in the menu |
 | `src/audio.js` | Procedural sound |
 | `src/save.js` | Save files and local storage |
 | `src/main.js` | App state, camera, HUD and main loop |

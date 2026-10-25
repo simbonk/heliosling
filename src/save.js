@@ -47,8 +47,11 @@ async function pipe(bytes, stream) {
 
 // Share links carry the whole universe (minus the belt) in the URL hash, deflated.
 export async function encodeShare(save) {
-  const lite = { ...save, sim: { ...save.sim, belt: null, events: save.sim.events.slice(-30) } };
-  const bytes = new TextEncoder().encode(JSON.stringify(lite));
+  return pack({ ...save, sim: { ...save.sim, belt: null, events: save.sim.events.slice(-30) } });
+}
+
+async function pack(obj) {
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
   if (typeof CompressionStream === 'undefined') return 'j' + b64url(bytes);
   return 'z' + b64url(await pipe(bytes, new CompressionStream('deflate-raw')));
 }
@@ -57,6 +60,19 @@ export async function decodeShare(code) {
   const kind = code[0], data = fromB64url(code.slice(1));
   const bytes = kind === 'z' ? await pipe(data, new DecompressionStream('deflate-raw')) : data;
   return validate(JSON.parse(new TextDecoder().decode(bytes)));
+}
+
+// A saved shot travels the same way: its universe at launch plus what happened.
+export async function encodeShot(rec) {
+  return pack({ name: rec.name, view: rec.view, meta: rec.meta, data: { ...rec.data, belt: null, events: [] } });
+}
+
+export async function decodeShot(code) {
+  const kind = code[0], data = fromB64url(code.slice(1));
+  const bytes = kind === 'z' ? await pipe(data, new DecompressionStream('deflate-raw')) : data;
+  const rec = JSON.parse(new TextDecoder().decode(bytes));
+  if (!rec?.data?.bodies?.length || !rec.meta?.id || typeof rec.name !== 'string') throw new Error('Not a shot');
+  return rec;
 }
 
 export const store = {
