@@ -352,6 +352,7 @@ body.dropping #drop-hint { display: grid; }
 /* ---------------- wider screens */
 @media (min-width: 760px) {
   #btn-sound { display: grid; }
+  .menu-sound { display: none; }
   .seg button { padding: 8px 14px; font-size: 14px; }
   .topbar { grid-template-columns: auto 1fr auto; grid-template-areas: 'brand views actions'; left: 14px; right: 14px; }
   .pill span { display: inline; }
