@@ -9,7 +9,8 @@ import { GalaxyView } from './galaxy.js';
 import { Aim, haloTex } from './aim.js';
 import { Audio } from './audio.js';
 import { makeLensPass, makeGravityGrid } from './shaders.js';
-import { MISSIONS, ACHIEVEMENTS, achievementsForEvent, describe, starsFor } from './missions.js';
+import { MISSIONS, describe, starsFor } from './missions.js';
+import TRICK_SHOTS from './trickshots.json';
 import { buildSave, downloadJSON, readFile, decodeShare, store } from './save.js';
 import { planetTexture, earthNightTexture } from './textures.js';
 import { icon, orb } from './icons.js';
@@ -58,7 +59,6 @@ const S = {
   shots: 0,
   lastShot: null,
   mission: null,
-  achievements: new Set(store.get('gm.achievements', [])),
   missionStars: store.get('gm.missions', {}),
 };
 
@@ -347,8 +347,6 @@ function launch(spec, st, shot) {
   S.shots++;
   if (S.mission) S.mission.shots++;
   audio.launch(Math.min(1, shot.speed / 200));
-  unlock('first_shot');
-  if (shot.speed > 500) unlock('speed_demon');
   document.querySelectorAll('.chip').forEach((c) => c.classList.remove('active'));
   setPlaying(true);
   updateDock();
@@ -428,7 +426,6 @@ sim.on((ev) => {
       ev.severe = MAJOR.has(ev.b) || (ev.aKind === 'blackhole' && MAJOR.has(ev.a));
     }
     if (ev.kind !== 'spawn') log(ev);
-    for (const a of achievementsForEvent(ev, sim)) unlock(a);
   }
   if (ev.kind === 'impact') {
     const big = sim.get(ev.a);
@@ -953,16 +950,6 @@ function tickReplay(now) {
 
 const stamp = (t) => `T+${t < 1 ? `${(t * 365.25).toFixed(0)}d` : `${t.toFixed(t < 100 ? 2 : 0)}y`}`;
 
-function unlock(id) {
-  if (S.achievements.has(id)) return;
-  const a = ACHIEVEMENTS.find((x) => x.id === id);
-  if (!a) return;
-  S.achievements.add(id);
-  store.set('gm.achievements', [...S.achievements]);
-  toast(`<span class="ach">${a.icon}</span> <b>${a.title}</b> · ${a.desc}`, 'achievement');
-  audio.chime();
-}
-
 // ---------------------------------------------------------------- missions
 const game = () => ({ sim, shots: S.mission?.shots || 0 });
 
@@ -1003,7 +990,6 @@ function missionResult(r) {
     const stars = starsFor(m.shots);
     S.missionStars[def.id] = Math.max(S.missionStars[def.id] || 0, stars);
     store.set('gm.missions', S.missionStars);
-    if (MISSIONS.every((x) => S.missionStars[x.id])) unlock('all_missions');
     audio.chime();
     const next = MISSIONS[MISSIONS.indexOf(def) + 1];
     modal({
@@ -1668,8 +1654,13 @@ function openFeedback() {
   });
 }
 
-function openTrophies() {
-  sheet(`Achievements · ${S.achievements.size}/${ACHIEVEMENTS.length}`, `<div class="trophies">${ACHIEVEMENTS.map((a) => `<div class="trophy ${S.achievements.has(a.id) ? 'got' : ''}"><span>${S.achievements.has(a.id) ? a.icon : '🔒'}</span><b>${a.title}</b><small>${a.desc}</small></div>`).join('')}</div>`);
+// Hand-picked shots that come with the game, found by running the simulation: watch them like
+// your own saved shots, then go and do better.
+function openTrickShots() {
+  const rows = TRICK_SHOTS.map((r) => `<div class="shot-row trick" data-id="${r.id}"><div><b>${r.name}</b><small>${r.blurb}</small></div><button data-play="${r.id}" class="primary">▶ Watch</button></div>`).join('');
+  sheet('Trick shots', `<p class="muted menu-note">A few shots worth seeing. Each one plays out in its own universe, then you're back in yours.</p><div class="shot-list">${rows}</div>`, (box) => {
+    box.querySelectorAll('[data-play]').forEach((b) => { b.onclick = () => { closeModal(); playShot(TRICK_SHOTS.find((r) => r.id === b.dataset.play)); }; });
+  });
 }
 
 function openMenu() {
@@ -1678,8 +1669,8 @@ function openMenu() {
       ${store.get('gm.autosave')?.sim?.bodies?.some((b) => b.spawned) ? `<button data-m="resume">${icon('history')} Resume last run</button>` : ''}
       <button data-m="save">Save .json</button>
       <button data-m="load">Load .json</button>
-      <button data-m="ach">Achievements · ${S.achievements.size}/${ACHIEVEMENTS.length}</button>
-      <button data-m="help">How it works</button>
+      <button data-m="tricks">Trick shots</button>
+      <button data-m="tour">Take the tour</button>
     </div>
     <h4>Bugs & ideas</h4>
     <p class="muted menu-note">Heliosling is fully open source. Found a bug or have an idea? Tell us on GitHub, or read and change the code yourself.</p>
@@ -1702,9 +1693,9 @@ function openMenu() {
     box.querySelector('[data-m=load]').onclick = loadFromFile;
     const res = box.querySelector('[data-m=resume]');
     if (res) res.onclick = () => { closeModal(); resumeLastRun(); };
-    box.querySelector('[data-m=help]').onclick = openHelp;
+    box.querySelector('[data-m=tour]').onclick = () => { closeModal(); startTour(); };
     box.querySelector('[data-m=feedback]').onclick = openFeedback;
-    box.querySelector('[data-m=ach]').onclick = openTrophies;
+    box.querySelector('[data-m=tricks]').onclick = openTrickShots;
     const dr = box.querySelector('#set-drift'), dv = box.querySelector('#drift-val');
     const toD = (x) => 0.2 * (REAL_DRIFT / 0.2) ** x, fromD = (d) => Math.log(d / 0.2) / Math.log(REAL_DRIFT / 0.2);
     const showD = () => { dv.textContent = `${(settings.drift * KMS_PER_AUYR).toFixed(0)} km/s${settings.drift >= REAL_DRIFT * 0.98 ? ' (real)' : ' (stylised)'}`; };
@@ -1725,51 +1716,111 @@ function openMenu() {
 
 function openHelp() {
   modal({
-    title: 'How it works',
+    title: 'Controls',
     body: `
-      <h4>Launch something</h4>
-      <ol class="howto">
-        <li><b>Pick</b> an object from the bar at the bottom.</li>
-        <li><b>Place</b> it: tap exactly where it should start.</li>
-        <li><b>Launch</b>: a slingshot appears around it. Pull it back and let go; it flies the opposite way, faster the further you pull. The ring marks the pull for a circular orbit, the dashed ring escape speed. The dotted line shows where it will go.</li>
-        <li><b>Watch</b>: the camera chases it, then three replays (chase cam, side view, top-down) show what happened. Skip them any time, or turn them off in the menu.</li>
-        <li><b>Rewind</b> winds time back a few seconds (press again to go further), then plays forward. <b>Undo</b> takes you back to just before your last launch, with the same aim. <b>Reset</b> (top bar) starts over with today's solar system. Collisions in the <b>Event log</b> (top right) can be replayed close up.</li>
-      </ol>
-      <h4>Look around</h4>
-      <p>${MOBILE ? 'One finger orbits, pinch zooms, two fingers pan.' : 'Drag to orbit, scroll to zoom, right-drag to pan.'} Use <b>Centred on ▾</b> (right side) to follow Earth or anything else. Tapping a planet also offers “Center on”.</p>
-      <h4>Views</h4>
-      <p><b>Helix</b>: the solar system flies through the galaxy, so orbits trace corkscrews. <b>Solar</b>: the Sun stays still and orbits are ellipses. <b>Milky Way</b>: the Sun's 230-million-year lap around the galaxy.</p>
-      <h4>Earth</h4>
-      <p>The green band is the habitable zone. The Earth badge at the top left shows its temperature and whether it is still in the zone.</p>
-      ${MOBILE ? '' : `<h4>Keyboard</h4>
-      <div class="keys">
-        <span><kbd>Space</kbd> play / pause</span><span><kbd>[</kbd> <kbd>]</kbd> speed</span><span><kbd>B</kbd> rewind</span><span><kbd>R</kbd> undo launch</span>
+      <p>${MOBILE ? 'One finger orbits, pinch zooms, two fingers pan.' : 'Drag to orbit, scroll to zoom, right-drag to pan.'} Tap a planet to center on it.</p>
+      ${MOBILE ? '' : `<div class="keys">
+        <span><kbd>Space</kbd> play / pause</span><span><kbd>[</kbd> <kbd>]</kbd> speed</span><span><kbd>B</kbd> rewind</span>
         <span><kbd>F</kbd> fit</span><span><kbd>0</kbd>–<kbd>9</kbd> center on Sun / planets</span><span><kbd>V</kbd> next view</span>
         <span><kbd>H</kbd> habitable zone</span><span><kbd>G</kbd> gravity wells</span><span><kbd>L</kbd> labels</span>
         <span><kbd>←</kbd> <kbd>→</kbd> turn aim</span><span><kbd>↑</kbd> <kbd>↓</kbd> faster / slower</span><span><kbd>Enter</kbd> launch</span>
-      </div>`}
-      <p class="muted small">Physics: real masses, planets placed at today's positions from JPL orbital elements, N-body gravity with an adaptive leapfrog integrator. Sizes are exaggerated so you can see them (switch to true scale in Layers); distances and masses are real.</p>`,
-    actions: [{ label: 'Got it', primary: true, onClick: closeModal }],
+      </div>`}`,
+    actions: [
+      { label: 'Take the tour', primary: true, onClick: () => { closeModal(); startTour(); } },
+      { label: 'Close', onClick: closeModal },
+    ],
   });
 }
 
-function onboarding() {
-  if (store.get('sss.onboarded')) return;
-  const steps = [
-    { t: 'Our solar system, right now', b: 'Every planet is where it really is today, moving under real gravity. The Sun drags them through the galaxy, so their paths trace a helix.' },
-    { t: 'Launch something', b: 'Pick an object from the bar at the bottom. Then tap where it should start, pull it back like a slingshot and let go. Three replays show what happened.' },
-    { t: 'Keep an eye on Earth', b: 'The green band is the habitable zone. The Earth badge tells you if it is still livable.' },
-  ];
-  let i = 0;
-  const show = () => modal({
-    title: steps[i].t,
-    body: `<p>${steps[i].b}</p><div class="dots">${steps.map((_, k) => `<i class="${k === i ? 'on' : ''}"></i>`).join('')}</div>`,
+// ---------------------------------------------------------------- tour
+// Offered once on the first visit (the answer is remembered) and always in the menu. Each step
+// spotlights the part of the screen it talks about; steps without a target sit mid-screen.
+const TOUR_KEY = 'hs.tour';
+const TOUR = [
+  { t: 'Welcome to Heliosling', b: "This is our solar system, right now: every planet where it really is today, moving under real gravity. Your job is to throw things at it and see what happens." },
+  { el: '#views', t: 'Three ways to look', b: '<b>Helix</b>: the Sun flies through the galaxy, so the planets trace corkscrews. <b>Solar</b>: the classic Sun-centred view. <b>Milky Way</b>: the Sun\'s 230-million-year lap around the galaxy.' },
+  { el: '#arsenal', t: '1. Pick something to throw', b: 'Asteroids, comets, rogue planets, whole stars, a black hole. Swipe the bar for more, then tap one.' },
+  { t: '2. Tap where it starts', b: 'Tap anywhere in space to drop it there. Its starting aim is a neat orbit around whatever pulls hardest at that spot, usually the Sun.', fig: 'place' },
+  { t: '3. Pull back and let go', b: 'The camera drops in behind a slingshot. <b>Pull further</b> to throw harder. <b>Pull to one side</b> to aim the other way. The <b>solid ring</b> is the speed for a circular orbit, and the <b>dashed ring</b> is escape speed. A ghost path shows where it will go, and warns you about a hit. <b>Drag the sky</b> to turn or tip the shot up and down, or tap a name on the compass strip to face it.', fig: 'sling' },
+  { t: '4. Watch the fireworks', b: 'The camera chases your shot, then replays it from the side and from above. If it hit something, you also get the view from the target. Liked it? Save it when asked.' },
+  { el: '.timebar', t: 'Time controls', b: 'Play or pause, <b>rewind</b> 10 seconds per press, and drag the slider to speed time up or slow it down.' },
+  { el: '#btn-reset', t: 'Start over', b: 'Puts the solar system back to how it is today. It offers to save your mess first.' },
+  { el: '#earth-pill', t: 'Keep an eye on Earth', b: 'Its temperature, and whether it is still in the habitable zone. Tap it to fly to Earth.' },
+  { el: '#btn-saved', t: 'Your saved shots', b: 'Every shot you saved, ready to rewatch.' },
+  { el: '#btn-menu', t: 'The menu', b: 'Has <b>trick shots</b> to watch for ideas, this tour again, and a way to report bugs or ideas.' },
+];
+
+const TOUR_FIG = {
+  place: `<svg viewBox="0 0 220 90" class="tour-fig" aria-hidden="true"><circle cx="40" cy="45" r="14" fill="#ffcc66"/><ellipse cx="40" cy="45" rx="90" ry="26" fill="none" stroke="currentColor" stroke-opacity=".25"/><circle cx="160" cy="34" r="6" fill="#9a8f84"/><circle cx="160" cy="34" r="13" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="5 4"/><path d="M178 58 l-10 -12 m10 12 l2 -14" stroke="var(--accent)" stroke-width="2" fill="none"/><text x="184" y="74" fill="currentColor" font-size="11">tap</text></svg>`,
+  sling: `<svg viewBox="0 0 220 110" class="tour-fig" aria-hidden="true"><circle cx="110" cy="40" r="26" fill="none" stroke="currentColor" stroke-opacity=".35"/><circle cx="110" cy="40" r="38" fill="none" stroke="currentColor" stroke-opacity=".35" stroke-dasharray="4 4"/><path d="M110 98 V60 M110 60 Q106 50 92 44 M110 60 Q114 50 128 44" stroke="#d8a878" stroke-width="5" fill="none" stroke-linecap="round"/><line x1="92" y1="44" x2="104" y2="76" stroke="#e06a4a" stroke-width="2"/><line x1="128" y1="44" x2="104" y2="76" stroke="#e06a4a" stroke-width="2"/><circle cx="104" cy="76" r="7" fill="#9a8f84"/><path d="M110 30 L118 6" stroke="var(--accent)" stroke-width="2" stroke-dasharray="3 3"/><path d="M118 6 l-7 3 m7 -3 l1 7" stroke="var(--accent)" stroke-width="2" fill="none"/><text x="140" y="92" fill="currentColor" font-size="11">pull back</text><text x="124" y="16" fill="currentColor" font-size="11">flies this way</text></svg>`,
+};
+
+function startTour(i = 0) {
+  endTour();
+  closeModal();
+  if (aim.active) aim.cancel();
+  const root = document.createElement('div');
+  root.className = 'tour';
+  root.innerHTML = '<div class="tour-hole"></div><div class="tour-card" role="dialog" aria-live="polite"></div>';
+  document.body.appendChild(root);
+  const hole = root.querySelector('.tour-hole'), card = root.querySelector('.tour-card');
+  const go = (k) => {
+    if (k < 0) return;
+    if (k >= TOUR.length) return endTour(true);
+    i = k;
+    const st = TOUR[i];
+    const target = st.el && document.querySelector(st.el);
+    const r = target && target.getClientRects().length ? target.getBoundingClientRect() : null;
+    card.innerHTML = `<div class="tour-step">${i + 1} / ${TOUR.length}</div><h3>${st.t}</h3>${st.fig ? TOUR_FIG[st.fig] : ''}<p>${st.b}</p>
+      <div class="tour-actions"><button class="tour-skip">${i === TOUR.length - 1 ? '' : 'Skip tour'}</button><span>${i ? '<button class="tour-prev">Back</button>' : ''}<button class="primary tour-next">${i === TOUR.length - 1 ? 'Start flinging' : 'Next'}</button></span></div>`;
+    root.classList.toggle('centered', !r);
+    if (r) {
+      const pad = 6;
+      Object.assign(hole.style, { left: `${r.left - pad}px`, top: `${r.top - pad}px`, width: `${r.width + pad * 2}px`, height: `${r.height + pad * 2}px` });
+      const below = r.top + r.height / 2 < innerHeight / 2;
+      card.style.top = below ? `${Math.min(r.bottom + 14, innerHeight - card.offsetHeight - 12)}px` : '';
+      card.style.bottom = below ? '' : `${Math.max(innerHeight - r.top + 14, 12)}px`;
+    } else {
+      Object.assign(hole.style, { left: '50%', top: '50%', width: '0px', height: '0px' });
+      card.style.top = card.style.bottom = '';
+    }
+    card.querySelector('.tour-next').onclick = () => go(i + 1);
+    card.querySelector('.tour-prev')?.addEventListener('click', () => go(i - 1));
+    card.querySelector('.tour-skip').onclick = () => endTour(true);
+    card.querySelector('.tour-next').focus();
+  };
+  root.onclick = (e) => { if (e.target === root || e.target === hole) go(i + 1); };
+  S.tourKeys = (e) => {
+    e.stopImmediatePropagation();
+    if (e.key === 'Escape') endTour(true);
+    else if (e.key === 'ArrowRight' || e.key === 'Enter') { e.preventDefault(); go(i + 1); }
+    else if (e.key === 'ArrowLeft') go(i - 1);
+  };
+  window.addEventListener('keydown', S.tourKeys, true);
+  S.tourResize = () => go(i);
+  window.addEventListener('resize', S.tourResize);
+  go(i);
+}
+
+function endTour(done) {
+  document.querySelector('.tour')?.remove();
+  if (S.tourKeys) window.removeEventListener('keydown', S.tourKeys, true);
+  if (S.tourResize) window.removeEventListener('resize', S.tourResize);
+  S.tourKeys = S.tourResize = null;
+  if (done) store.set(TOUR_KEY, 'seen');
+}
+
+// first visit only: ask once, and remember the answer either way
+function offerTour() {
+  if (store.get(TOUR_KEY)) return;
+  modal({
+    title: 'New to Heliosling?',
+    body: '<p>Take a one-minute tour of how to pick, place and fling things. You can always find it later in the menu.</p>',
     actions: [
-      { label: i < steps.length - 1 ? 'Next' : 'Start exploring', primary: true, onClick: () => { if (++i < steps.length) show(); else { closeModal(); store.set('sss.onboarded', true); } } },
-      { label: 'Skip', onClick: () => { closeModal(); store.set('sss.onboarded', true); } },
+      { label: 'Take the tour', primary: true, onClick: () => { closeModal(); startTour(); } },
+      { label: 'No thanks', onClick: () => { closeModal(); store.set(TOUR_KEY, 'skipped'); } },
     ],
   });
-  show();
 }
 
 $('#btn-saved').onclick = openSaved;
@@ -1865,7 +1916,6 @@ function frameLoop(now) {
       sim.sampleDt = Math.min(0.05, Math.max(0.002, S.speed / 90));
       dtSim = sim.advance(span, MOBILE ? 350 : 700);
       S.dilated = dtSim < span * 0.8;
-      if (sim.t > 1000) unlock('time_lord');
       if (S.replay) tickReplay(now);
       else if (S.reel) tickReel(dt);
       else { recordSnap(now); recordHist(now); tickFlight(dt, now); }
@@ -1904,7 +1954,7 @@ function frameLoop(now) {
   } else {
     if (S.galaxyPlaying) {
       galaxy.update(dt, S.galaxySpeed);
-      if (galaxy.t >= 0 && !S.reachedToday) { S.reachedToday = true; unlock('tourist'); toast('🌍 Today. The Sun keeps going...'); }
+      if (galaxy.t >= 0 && !S.reachedToday) { S.reachedToday = true; toast('🌍 Today. The Sun keeps going...'); }
     } else galaxy.update(0, 0);
     lens.enabled = false;
     grid.visible = false;
@@ -1951,7 +2001,7 @@ updateDock();
   }
   const auto = store.get('gm.autosave');
   if (auto?.sim?.bodies?.some((b) => b.spawned)) showResumePill(auto);
-  onboarding();
+  offerTour();
 })();
 
 // generate the procedural textures behind the loading screen so the first frame doesn't hitch

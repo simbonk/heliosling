@@ -71,8 +71,6 @@ body.rewinding .timebar { border-color: rgba(255, 179, 71, 0.6); }
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); font-size: 16px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 9px;
 }
 .pill span { display: none; font-size: 13px; }
-#btn-trophy { position: relative; }
-#btn-trophy[data-count]:not([data-count='0'])::after { content: attr(data-count); position: absolute; top: -4px; right: -4px; background: var(--accent); color: var(--accent-ink); font: 600 10px var(--mono); border-radius: 8px; padding: 1px 4px; }
 .desktop-only { display: none; }
 .seg { grid-area: views; justify-self: center; display: flex; padding: 3px; border-radius: 12px; background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
 .seg button { border: 0; background: none; padding: 7px 8px; border-radius: 9px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
@@ -325,12 +323,6 @@ kbd { font: 11px var(--mono); padding: 1px 5px; border: 1px solid var(--line-str
 .lvl-easy { background: rgba(89, 227, 160, 0.16); color: var(--good); }
 .lvl-medium { background: rgba(255, 179, 71, 0.16); color: var(--warn); }
 .lvl-hard, .lvl-expert { background: rgba(255, 93, 93, 0.16); color: var(--bad); }
-.trophies { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
-.trophy { border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 2px; opacity: 0.45; }
-.trophy.got { opacity: 1; border-color: rgba(255, 210, 122, 0.4); }
-.trophy span { font-size: 22px; }
-.trophy b { font-size: 13px; }
-.trophy small { font-size: 11px; color: var(--muted); }
 .menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .menu-grid button { height: 48px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.04); font-size: 13px; text-align: left; padding: 0 12px; }
 .row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; font-size: 13px; padding: 8px 0; border-bottom: 1px solid var(--line); }
@@ -583,3 +575,19 @@ body.cinema .log-flash { display: none; }
 .menu-link { display: flex; align-items: center; height: 48px; padding: 0 12px; border-radius: 12px; color: var(--muted); font-size: 13px; text-decoration: none; border: 1px dashed var(--line); }
 .menu-link:hover { color: var(--text); }
 .menu-note { font-size: 13px; line-height: 1.45; margin: 0 2px 10px; }
+
+/* tour */
+.tour { position: fixed; inset: 0; z-index: 60; }
+.tour-hole { position: absolute; border-radius: 14px; box-shadow: 0 0 0 9999px rgba(3, 6, 16, 0.72); outline: 2px solid var(--accent); transition: all 0.3s ease; pointer-events: none; }
+.tour.centered .tour-hole { outline: none; }
+.tour-card { position: absolute; left: 50%; transform: translateX(-50%); width: min(380px, calc(100% - 32px)); background: var(--glass-strong); border: 1px solid var(--line-strong); border-radius: 18px; padding: 16px 18px; box-shadow: 0 30px 80px #000a; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); animation: pop 0.22s ease-out; max-height: 70vh; overflow: auto; }
+.tour.centered .tour-card { top: 50%; transform: translate(-50%, -50%); }
+.tour-card h3 { margin: 2px 0 6px; font-size: 18px; }
+.tour-card p { margin: 0; font-size: 14px; line-height: 1.5; color: #cdd6f0; }
+.tour-step { font: 600 11px var(--mono); color: var(--muted); letter-spacing: 0.04em; }
+.tour-fig { display: block; width: 100%; max-height: 110px; margin: 4px 0 10px; color: var(--text); }
+.tour-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; gap: 8px; }
+.tour-actions span { display: flex; gap: 8px; }
+.tour-actions button { height: 40px; padding: 0 16px; border-radius: 12px; border: 1px solid var(--line-strong); background: rgba(255, 255, 255, 0.05); font-weight: 500; }
+.tour-actions .tour-skip { border: 0; background: none; color: var(--muted); padding: 0 4px; }
+.tour-actions .primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
