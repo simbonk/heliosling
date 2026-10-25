@@ -459,6 +459,7 @@ function startFlight(b, shot) {
   const F = {
     id: b.id, name: b.name, shot, t0: sim.t, snap: sim.snapshot(), trail: trails.count,
     userSpeed: S.speed, elapsed: 0, hitAt: 0, hitT: null, target: shot.hitId || null,
+    save: sim.serialize({ belt: false }), // in case it's worth keeping
   };
   S.flight = F;
   // pace it so the predicted impact lands at ~7 s, or ~1 predicted path plays in 10 s
@@ -479,6 +480,7 @@ function startFlight(b, shot) {
 function reelBar(label, buttons) {
   const bar = $('#replaybar');
   bar.hidden = false;
+  bar.classList.remove('offer-save');
   bar.innerHTML = `${label}<span class="rb-btns">${buttons.map(([t], i) => `<button data-b="${i}" class="${i === buttons.length - 1 ? 'primary' : ''}">${t}</button>`).join('')}</span>`;
   bar.querySelectorAll('[data-b]').forEach((el) => { el.onclick = buttons[+el.dataset.b][1]; });
 }
@@ -504,6 +506,7 @@ function endFlight() {
   const F = S.flight;
   if (!F) return;
   S.flight = null;
+  F.tEnd = sim.t;
   if (settings.reels === false) return wrapUp(F);
   S.reel = { F, present: sim.snapshot(), presentTrail: trails.count, tEnd: sim.t, i: -1 };
   nextReel();
@@ -599,7 +602,8 @@ function finishReels() {
   if (!R) return;
   S.reel = null;
   sim.restore(R.present);
-  trails.count = R.presentTrail;
+  if (R.F.fromSave) resetVisuals(); // back from a saved universe: its trails don't belong here
+  else trails.count = R.presentTrail;
   cinema(false);
   wrapUp(R.F);
 }
@@ -639,6 +643,95 @@ function wrapUp(F) {
   updateDock();
   renderInfo();
   updateRail();
+  if (F.save && !F.fromSave && !S.switchingView) offerSave(F);
+}
+
+// ---------------------------------------------------------------- saved shots
+// Shots worth keeping: the universe at the moment of launch plus what happened, so the replays
+// can be watched again any time. Kept apart from the running game, so Reset leaves them alone.
+const SHOTS_KEY = 'sss.shots';
+const MAX_SHOTS = 40;
+const savedShots = () => store.get(SHOTS_KEY, []);
+
+function offerSave(F) {
+  reelBar('<span><b>💾 Save this shot?</b> Keep it to replay later</span>', [
+    ['No', () => { $('#replaybar').hidden = true; }],
+    ['Save…', () => { $('#replaybar').hidden = true; promptSave(F); }],
+  ]);
+  const bar = $('#replaybar');
+  bar.classList.add('offer-save');
+  clearTimeout(S.saveOfferT);
+  // don't nag: the question goes away by itself
+  S.saveOfferT = setTimeout(() => { if (bar.classList.contains('offer-save') && !S.flight && !S.reel) bar.hidden = true; }, 15000);
+}
+
+function shotTitle(F) {
+  const t = F.target && F.save.bodies.find((b) => b.id === F.target);
+  return F.hitT && t ? `${F.name} hits ${t.name}` : `${F.name} launch`;
+}
+
+function promptSave(F) {
+  modal({
+    title: '💾 Save shot',
+    body: `<label class="save-name">Name<input id="shot-name" maxlength="60" value="${shotTitle(F).replace(/"/g, '&quot;')}"></label>`,
+    actions: [
+      { label: 'Cancel', onClick: closeModal },
+      { label: 'Save', primary: true, onClick: () => {
+        const name = ($('#shot-name').value || '').trim() || shotTitle(F);
+        const list = savedShots();
+        list.unshift({
+          id: `s${Date.now().toString(36)}`, name, at: Date.now(), view: S.view === 'galaxy' ? 'helix' : S.view, data: F.save,
+          meta: { id: F.id, name: F.name, host: F.shot.host || null, target: F.target, hitDt: F.hitT != null ? F.hitT - F.t0 : null, dur: (F.tEnd ?? sim.t) - F.t0 },
+        });
+        try { store.set(SHOTS_KEY, list.slice(0, MAX_SHOTS)); } catch { return toast('Could not save: storage is full', 'sticky'); }
+        closeModal();
+        pushLog({ icon: '💾', text: `Saved “${name}”` });
+        updateSavedBadge();
+      } },
+    ],
+  });
+  setTimeout(() => { const i = $('#shot-name'); i?.focus(); i?.select(); }, 50);
+}
+
+function openSaved() {
+  const list = savedShots();
+  const fmt = (ms) => new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const rows = list.length ? list.map((r) => `<div class="shot-row" data-id="${r.id}"><div><b>${r.name.replace(/</g, '&lt;')}</b><small>${fmt(r.at)} · ${r.meta.hitDt != null ? 'impact' : 'flight'}</small></div><button data-play="${r.id}" class="primary">▶ Watch</button><button data-del="${r.id}" aria-label="Delete ${r.name.replace(/"/g, '')}">✕</button></div>`).join('')
+    : '<p class="muted">No saved shots yet. After a launch plays out, choose <b>Save</b> to keep it here.</p>';
+  sheet('💾 Saved shots', `<div class="shot-list">${rows}</div>`, (box) => {
+    box.querySelectorAll('[data-play]').forEach((b) => { b.onclick = () => { closeModal(); playShot(savedShots().find((r) => r.id === b.dataset.play)); }; });
+    box.querySelectorAll('[data-del]').forEach((b) => { b.onclick = () => {
+      store.set(SHOTS_KEY, savedShots().filter((r) => r.id !== b.dataset.del));
+      b.closest('.shot-row').remove();
+      updateSavedBadge();
+    }; });
+  });
+}
+
+// Watch a saved shot's replays, then come back to the game exactly as it was.
+function playShot(rec) {
+  if (!rec) return;
+  if (S.replay) endReplay();
+  if (S.flight || S.reel) abortReel();
+  if (aim.active) aim.cancel();
+  if (S.view !== rec.view) { S.switchingView = true; setView(rec.view); S.switchingView = false; }
+  const present = sim.snapshot();
+  const userSpeed = S.speed;
+  sim.load(rec.data);
+  resetVisuals();
+  const m = rec.meta;
+  const F = {
+    id: m.id, name: m.name, shot: { host: m.host, hitId: m.target }, t0: sim.t, snap: sim.snapshot(), trail: trails.count,
+    userSpeed, hitT: m.hitDt != null ? sim.t + m.hitDt : null, target: m.target, fromSave: true,
+  };
+  S.reel = { F, present, presentTrail: 0, tEnd: sim.t + m.dur, i: -1 };
+  nextReel();
+}
+
+function updateSavedBadge() {
+  const n = savedShots().length;
+  const btn = $('#btn-saved');
+  if (btn) btn.dataset.count = n || '';
 }
 
 // ---------------------------------------------------------------- event log
@@ -1082,13 +1175,11 @@ function updateDock() {
   $('#btn-play').setAttribute('aria-label', isPlaying() ? 'Pause' : 'Play');
   $('#speed').value = sliderFromSpeed();
   $('#speed-label').textContent = speedText();
-  $('#btn-rewind').disabled = !S.lastShot || S.view === 'galaxy';
   $('#btn-reset').disabled = S.view === 'galaxy';
   $('#btn-back').disabled = S.view === 'galaxy' || hist.length < 2;
 }
 
 $('#btn-play').onclick = () => { audio.ensure(); if (aim.active) aim.cancel(); setPlaying(!isPlaying()); };
-$('#btn-rewind').onclick = () => resetToShot();
 $('#btn-reset').onclick = () => resetFlow();
 $('#btn-back').onclick = () => rewind();
 
@@ -1098,12 +1189,12 @@ $('#btn-back').onclick = () => rewind();
 // Each extra press while rewinding goes further back.
 const hist = [];
 let histT = 0;
-const REWIND_STEP = 24; // snapshots per press: ~6 s of play
+const REWIND_STEP = 40; // 10 seconds of play per press (history is sampled every 250 ms)
 function recordHist(now) {
   if (now - histT < 250) return;
   histT = now;
   hist.push({ ...sim.snapshot(), trailCount: trails.count });
-  if (hist.length > 120) hist.shift();
+  if (hist.length > 480) hist.shift(); // the last two minutes of play
   if (hist.length === 2) updateDock();
 }
 function rewind() {
@@ -1121,7 +1212,7 @@ function tickRewind(dt) {
   const R = S.rewinding;
   if (!R) return;
   // ease back: faster when far from the target, about a second per press
-  const speed = Math.max(18, (R.at - R.target) * 2.2);
+  const speed = Math.max(30, (R.at - R.target) * 1.6);
   R.pos = (R.pos ?? R.at) - speed * dt;
   const i = Math.max(R.target, Math.round(R.pos));
   if (i !== R.at) {
@@ -1594,7 +1685,8 @@ function onboarding() {
   show();
 }
 
-$('#btn-missions').onclick = openMissions;
+$('#btn-saved').onclick = openSaved;
+updateSavedBadge();
 $('#btn-menu').onclick = openMenu;
 $('#btn-sound').onclick = () => { audio.ensure(); audio.setMuted(!audio.muted); updateSound(); };
 function updateSound() { $('#btn-sound').textContent = audio.muted ? '🔇' : '🔊'; $('#btn-sound').setAttribute('aria-label', audio.muted ? 'Unmute' : 'Mute'); }
