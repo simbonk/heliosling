@@ -5,7 +5,7 @@ import { Sim } from './physics.js';
 import { SPAWNABLES, KMS_PER_AUYR, START_YEAR, PLANETS } from './data.js';
 import { createRenderer, makeStarfield, BodyViews, Trails, Belt, SpaceDust, Effects } from './render.js';
 import { GalaxyView } from './galaxy.js';
-import { Aim } from './aim.js';
+import { Aim, haloTex } from './aim.js';
 import { Audio } from './audio.js';
 import { makeLensPass, makeGravityGrid } from './shaders.js';
 import { MISSIONS, ACHIEVEMENTS, achievementsForEvent, describe, starsFor } from './missions.js';
@@ -73,6 +73,27 @@ trails.length = settings.trailLength;
 const belt = new Belt(scene);
 const dust = new SpaceDust(scene);
 const effects = new Effects(scene, { maxParticles: MOBILE ? 320 : 700 });
+
+// marks the shot while it flies (and in its replays), so it's easy to keep an eye on
+const tracker = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTex(), color: 0xfff4c8, sizeAttenuation: false, depthTest: false, transparent: true }));
+tracker.renderOrder = 11;
+tracker.visible = false;
+scene.add(tracker);
+const _tp = new THREE.Vector3();
+function updateTracker(t) {
+  const id = S.flight?.id || S.reel?.F.id;
+  const b = id && sim.get(id);
+  tracker.visible = !!b;
+  if (!b) return;
+  toRender(b, _tp);
+  tracker.position.copy(_tp);
+  // at least a fixed size on screen, and always wide enough to ring the body when it's up close
+  const fit = (3.6 * sim.radius(b)) / Math.max(1e-6, camera.position.distanceTo(_tp));
+  tracker.scale.setScalar(Math.max(S.cinema ? 0.05 : 0.065, fit) * (1 + Math.sin(t * 5) * 0.1));
+  tracker.material.rotation = t * 1.4;
+  // up close the body speaks for itself, and a big ring gets heavy: fade it back
+  tracker.material.opacity = (S.cinema ? 0.6 : 0.95) * THREE.MathUtils.clamp(0.16 / fit, 0.3, 1);
+}
 const galaxy = new GalaxyView(scene, { stars: MOBILE ? 30000 : 60000 });
 const grid = makeGravityGrid();
 scene.add(grid);
@@ -1634,6 +1655,7 @@ function frameLoop(now) {
     }
     effects.update(dt, (id, out) => { const b = sim.get(id); if (!b) return false; toRender(b, out); return true; });
     aim.update(now / 1000);
+    updateTracker(now / 1000);
     const camDist = camera.position.distanceTo(controls.target);
     grid.visible = settings.grid && !S.cinema;
     if (grid.visible) grid.update(sim.bodies, toRender, ref, Math.max(4, Math.min(80, camDist * 1.4)));

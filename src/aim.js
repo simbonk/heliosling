@@ -38,8 +38,12 @@ export class Aim {
     scene.add(this.group);
 
     this.ghost = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, sizeAttenuation: false, depthTest: false, transparent: true, blending: THREE.AdditiveBlending }));
-    this.ghost.scale.setScalar(0.05);
+    this.ghost.scale.setScalar(0.07);
     this.ghost.renderOrder = 10;
+    // a bright spinning ring round the object in the pouch, so it reads as "the thing you're flinging"
+    this.halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTex(), sizeAttenuation: false, depthTest: false, transparent: true }));
+    this.halo.renderOrder = 11;
+    this.ghost.add(this.halo);
 
     const n = 400;
     const pg = new THREE.BufferGeometry();
@@ -189,6 +193,7 @@ export class Aim {
     this.ghost.visible = false;
     this.prediction = null;
     this.ghost.material.color.set(spec.kind === 'blackhole' ? '#ff9a4a' : spec.color);
+    this.halo.material.color.set(spec.kind === 'blackhole' ? '#ffc08a' : '#fff4c8');
     this.updateGrid();
     this.updateDial();
     this.app.onAimChange?.();
@@ -428,7 +433,10 @@ export class Aim {
   update(t) {
     if (!this.mode) return;
     this.impact.scale.setScalar(0.06 + Math.sin(t * 8) * 0.012);
-    this.ghost.scale.setScalar(0.04 + Math.sin(t * 5) * 0.006);
+    this.ghost.scale.setScalar(0.07 + Math.sin(t * 5) * 0.012);
+    // the halo is a child of the ghost, so its scale is relative: breathe a little out of step
+    this.halo.scale.setScalar(1.15 + Math.sin(t * 5 + 1.2) * 0.12);
+    this.halo.material.rotation = t * 1.4;
     const d = this.app.camera.position.distanceTo(this.app.controls.target);
     this.grid.scale.setScalar(THREE.MathUtils.clamp(Math.pow(2, Math.round(Math.log2(d / 20))), 0.05, 64));
     this.updateDial(); // the camera may move under the dial
@@ -449,6 +457,22 @@ export class Aim {
       hitIn: this.prediction?.hit ? this.prediction.pts[this.prediction.pts.length - 1][3] : null,
     };
   }
+}
+
+// dashed ring with a soft glow, for marking the object being launched (also used on the shot in flight)
+export function haloTex() {
+  const s = 128, cv = document.createElement('canvas');
+  cv.width = cv.height = s;
+  const ctx = cv.getContext('2d');
+  ctx.strokeStyle = 'white';
+  ctx.shadowColor = 'white';
+  ctx.shadowBlur = 10;
+  ctx.lineWidth = 6;
+  for (let i = 0; i < 6; i++) {
+    const a = (i * Math.PI) / 3;
+    ctx.beginPath(); ctx.arc(s / 2, s / 2, s / 2 - 14, a + 0.12, a + Math.PI / 3 - 0.12); ctx.stroke();
+  }
+  return new THREE.CanvasTexture(cv);
 }
 
 function ringTex() {

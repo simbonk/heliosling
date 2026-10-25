@@ -217,7 +217,9 @@ body.aiming #info { display: none; }
 .sling-fork { fill: none; stroke: #c89a64; stroke-width: 7; stroke-linecap: round; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.6)); }
 .sling-band { stroke: #d9573b; stroke-width: 4; stroke-linecap: round; }
 .aim-dial.pulling .sling-band { stroke-width: 3; }
-.sling-pouch { fill: rgba(217, 87, 59, 0.18); stroke: #d9573b; stroke-width: 2; }
+.sling-pouch { fill: rgba(255, 214, 120, 0.16); stroke: #ffd36b; stroke-width: 3; filter: drop-shadow(0 0 6px rgba(255, 211, 107, 0.9)); animation: pouch-pulse 1.2s ease-in-out infinite; }
+@keyframes pouch-pulse { 50% { stroke-width: 4.5; fill: rgba(255, 214, 120, 0.3); } }
+@media (prefers-reduced-motion: reduce) { .sling-pouch { animation: none; } }
 .sling-grab { fill: transparent; pointer-events: all; cursor: grab; touch-action: none; }
 .aim-dial.pulling .sling-grab { cursor: grabbing; }
 .sling-guides { opacity: 0.35; transition: opacity 0.2s; }
