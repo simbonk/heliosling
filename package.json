@@ -4,6 +4,12 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Fling worlds at the solar system and watch what happens. A browser game on real gravity.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/simbonk/heliosling"
+  },
+  "homepage": "https://heliosling.vercel.app",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
