@@ -254,12 +254,13 @@ function updateCamera(dt, dtSim) {
     const k = S.slingCam.settled ? 1 - Math.exp(-dt * 6) : a;
     camera.position.lerp(v.pos, k);
     controls.target.lerp(v.target, k);
+    camera.up.lerp(v.up, k).normalize();
     camera.lookAt(controls.target);
     controls.enabled = false;
     rig.lastFocus = null;
     return;
   }
-  if (S.slingCam) { S.slingCam = null; controls.enabled = rig.mode !== 'ride'; }
+  if (S.slingCam) { S.slingCam = null; camera.up.set(0, 1, 0); controls.enabled = rig.mode !== 'ride'; }
   if (rig.mode === 'ride' && S.selected && S.view !== 'galaxy') {
     const b = sim.get(S.selected);
     if (!b) { setCamMode('system'); return; }
@@ -1328,7 +1329,7 @@ function renderAimBar() {
     let body = '';
     if (h.mode === 'place') body = `<div class="aim-msg"><b>${s.icon} ${s.name}</b> Tap anywhere in space to place it.</div>`;
     if (h.mode === 'heading') body = `
-      <div class="aim-msg"><b>Pull back &amp; let go.</b> Sideways aims, further is faster. Turn with the compass, tilt up or down with the lever.</div>
+      <div class="aim-msg"><b>Pull back &amp; let go.</b> Sideways aims, further is faster. Drag the sky to look around: left/right turns, up/down tilts.</div>
       <div class="aim-row"><div class="aim-live"></div><button data-a="back" class="aim-back">Back</button></div>`;
     const back = h.mode === 'place' ? 'Cancel' : 'Back';
     const next = '';
@@ -1351,11 +1352,12 @@ function renderAimBar() {
   if (tv) tv.textContent = `${h.elev.toFixed(0)}°`;
   const live = bar.querySelector('.aim-live');
   if (live) {
-    if (!h.aiming) live.innerHTML = '<span class="muted">Solid ring: circular orbit. Dashed: escape speed.</span>';
+    if (!h.aiming) live.innerHTML = `<span class="muted">Solid ring: circular orbit. Dashed: escape speed.${Math.abs(h.elev) >= 1 ? ` Tilted ${h.elev > 0 ? 'up' : 'down'} ${Math.abs(h.elev).toFixed(0)}°.` : ''}</span>`;
     else {
       const hit = h.hit ? `<span class="bad">⚠ Hits ${h.hit} in ${h.hitIn < 1 ? `${(h.hitIn * 12).toFixed(1)} months` : `${h.hitIn.toFixed(1)} yr`}</span>` : '<span class="muted">No impact predicted</span>';
       const kind = Math.abs(h.mult - 1) < 0.01 ? 'circular orbit' : Math.abs(h.mult - Math.SQRT2) < 0.01 ? 'escape speed' : `${h.mult.toFixed(2)}× orbit speed`;
-      live.innerHTML = `${hit} · <span class="muted"><b class="mono">${h.speed.toFixed(1)} km/s</b> · ${kind}</span>`;
+      const tilt = Math.abs(h.elev) >= 1 ? ` · tilted ${h.elev > 0 ? 'up' : 'down'} ${Math.abs(h.elev).toFixed(0)}°` : '';
+      live.innerHTML = `${hit} · <span class="muted"><b class="mono">${h.speed.toFixed(1)} km/s</b> · ${kind}${tilt}</span>`;
     }
   }
 }

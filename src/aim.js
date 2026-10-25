@@ -11,6 +11,7 @@ const KNOB_MIN = 30, KNOB_MAX = 2 * DIAL_R;
 const multFromR = (r) => (r <= KNOB_MIN ? 0 : ((Math.min(r, KNOB_MAX) - KNOB_MIN) / (DIAL_R - KNOB_MIN)) ** 1.5);
 const rFromMult = (m) => KNOB_MIN + (DIAL_R - KNOB_MIN) * Math.cbrt(m * m);
 const SVGNS = 'http://www.w3.org/2000/svg';
+const MAX_ELEV = THREE.MathUtils.degToRad(75);
 
 // Launching, Angry Birds style and built for touch first:
 //   1. place   - tap exactly where the object should start (tap again anywhere to move it)
@@ -18,7 +19,8 @@ const SVGNS = 'http://www.w3.org/2000/svg';
 //                slingshot holding it in front of you. Pull back and let go: left/right aims, pull
 //                length sets the speed as a multiple of the circular-orbit speed at that spot, and a
 //                ghost trajectory shows where it will go while you pull. A compass strip turns the
-//                slingshot to face somewhere else (drag it, tap a marker, or drag the sky).
+//                slingshot to face somewhere else (drag it, tap a marker, or drag the sky
+//                sideways); dragging the sky up or down tips the shot above or below the plane.
 export class Aim {
   constructor(app) {
     this.app = app;
@@ -79,11 +81,17 @@ export class Aim {
     this.makeDial();
 
     const dom = app.renderer.domElement;
-    dom.addEventListener('pointerdown', (e) => { this.tapStart = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId, phi: this.phi }; });
-    // in the slingshot view, dragging the sky sideways turns the slingshot
+    dom.addEventListener('pointerdown', (e) => { this.tapStart = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId, phi: this.phi, elev: this.elev }; });
+    // In the slingshot view, dragging the sky looks around: sideways turns the slingshot, up and
+    // down tips it (and the view with it) above or below the planets' plane. The scene follows
+    // the finger, so dragging down looks up.
     dom.addEventListener('pointermove', (e) => {
       const t = this.tapStart;
       if (this.mode !== 'heading' || !t || t.id !== e.pointerId || this.dragging) return;
+      let elev = THREE.MathUtils.clamp(t.elev + (e.clientY - t.y) * 0.005, -MAX_ELEV, MAX_ELEV);
+      if (Math.abs(elev) < 0.035) elev = 0; // snaps level
+      if (Math.round(THREE.MathUtils.radToDeg(elev) / 15) !== Math.round(THREE.MathUtils.radToDeg(this.elev) / 15)) this.app.audio.click(1.3);
+      this.elev = elev;
       this.turnTo(t.phi - (e.clientX - t.x) * 0.006);
     });
     dom.addEventListener('pointerup', (e) => this.canvasUp(e));
@@ -126,7 +134,6 @@ export class Aim {
     document.body.appendChild(root);
     this.dial = { root, c };
     this.makeCompass();
-    this.makeLever();
 
     this.grab.addEventListener('pointerdown', (e) => {
       if (this.mode !== 'heading') return;
@@ -200,11 +207,14 @@ export class Aim {
     const hp = this.app.toRender(this.host(), new THREE.Vector3());
     let D = Math.max(R * 25, hp.distanceTo(this.P) * 1.5);
     if (this.path.visible && this.pathExtent) D = Math.max(D, Math.min(this.pathExtent * 2.6, 90));
-    const f = this.forward();
+    // the whole rig tips about the slingshot's sideways axis with the launch tilt, so looking
+    // up or down swings the plane, the gravity well and the planets through the view
+    const tip = new THREE.Quaternion().setFromAxisAngle(this.right(), this.elev);
+    const f = this.forward().applyQuaternion(tip), up = UP.clone().applyQuaternion(tip);
     const e = THREE.MathUtils.degToRad(40), look = THREE.MathUtils.degToRad(36);
-    const pos = this.P.clone().addScaledVector(f, -D * Math.cos(e)).addScaledVector(UP, D * Math.sin(e));
-    const ahead = f.clone().multiplyScalar(Math.cos(look)).addScaledVector(UP, -Math.sin(look));
-    return { pos, target: pos.clone().addScaledVector(ahead, D) };
+    const pos = this.P.clone().addScaledVector(f, -D * Math.cos(e)).addScaledVector(up, D * Math.sin(e));
+    const ahead = f.clone().multiplyScalar(Math.cos(look)).addScaledVector(up, -Math.sin(look));
+    return { pos, target: pos.clone().addScaledVector(ahead, D), up };
   }
 
   // Directions worth facing: along the orbit, in toward what it orbits, the nearest few
@@ -262,57 +272,6 @@ export class Aim {
     this.compass = { box, ticks: box.querySelector('.cmp-ticks'), strip };
   }
 
-  // Up/down: a lever at the side of the screen tilts the launch out of the planets' plane.
-  // Drag it up to aim above the plane, down to aim below; it snaps to flat, and a tap on the
-  // readout levels it again. While you move it the ghost path shows the tilted shot.
-  makeLever() {
-    const box = document.createElement('div');
-    box.className = 'sling-lever';
-    box.hidden = true;
-    box.innerHTML = '<span class="lv-end">▲</span><div class="lv-track"><i class="lv-zero"></i><i class="lv-fill"></i><b class="lv-thumb"></b></div><span class="lv-end">▼</span><button class="lv-val" aria-label="Level the shot">0°</button>';
-    document.body.appendChild(box);
-    const track = box.querySelector('.lv-track');
-    const MAX = 80;
-    const set = (e) => {
-      const r = track.getBoundingClientRect();
-      let deg = ((r.top + r.height / 2 - e.clientY) / (r.height / 2)) * MAX;
-      deg = THREE.MathUtils.clamp(Math.round(deg), -MAX, MAX);
-      if (Math.abs(deg) < 4) deg = 0;
-      if (deg !== Math.round(THREE.MathUtils.radToDeg(this.elev))) this.app.audio.click(1.2 + deg / 200);
-      this.keyAim = true; // show the path while tilting
-      this.setElevation(deg);
-    };
-    let id = null;
-    track.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); id = e.pointerId; track.setPointerCapture(id); box.classList.add('active'); set(e); });
-    track.addEventListener('pointermove', (e) => { if (e.pointerId === id) set(e); });
-    const up = (e) => { if (e.pointerId === id) { id = null; box.classList.remove('active'); } };
-    track.addEventListener('pointerup', up);
-    track.addEventListener('pointercancel', up);
-    box.querySelector('.lv-val').onclick = () => { this.keyAim = true; this.setElevation(0); };
-    this.lever = { box, MAX };
-  }
-
-  renderLever() {
-    const { box, MAX } = this.lever;
-    const show = this.mode === 'heading';
-    box.hidden = !show;
-    if (!show) return;
-    // midway down the gap between the compass and the wizard, on the right edge
-    const top = this.compass.box.getBoundingClientRect().bottom;
-    const bottom = document.querySelector('#aimbar')?.getBoundingClientRect().top || innerHeight;
-    box.style.top = `${(top + bottom) / 2 - box.offsetHeight / 2}px`;
-    const deg = Math.round(THREE.MathUtils.radToDeg(this.elev));
-    const key = `${deg}`;
-    if (key === this.lever.key) return;
-    this.lever.key = key;
-    const f = deg / MAX; // -1..1, up is positive
-    box.style.setProperty('--lv', `${(50 - f * 50).toFixed(1)}%`);
-    box.style.setProperty('--lv-h', `${Math.abs(f * 50).toFixed(1)}%`);
-    box.style.setProperty('--lv-top', `${(f > 0 ? 50 - f * 50 : 50).toFixed(1)}%`);
-    box.querySelector('.lv-val').textContent = `${deg > 0 ? '+' : ''}${deg}°`;
-    box.classList.toggle('tilted', deg !== 0);
-  }
-
   renderCompass() {
     const { box, ticks, strip } = this.compass;
     const show = this.mode === 'heading';
@@ -367,7 +326,6 @@ export class Aim {
     this.dialSpeed.setAttribute('x', ax);
     this.dialSpeed.setAttribute('y', ay - 10);
     this.renderCompass();
-    this.renderLever();
   }
 
   // ---------------------------------------------------------- flow
@@ -399,7 +357,6 @@ export class Aim {
     this.impactLabel.visible = false;
     this.dial.root.hidden = true;
     this.compass.box.hidden = true;
-    this.lever.box.hidden = true;
     this.app.controls.enabled = true;
     this.app.onAimChange?.();
   }
@@ -497,7 +454,7 @@ export class Aim {
     this.keyAim = true;
     if (kind === 'turn') { this.phi -= THREE.MathUtils.degToRad(amount); this.dir.copy(this.forward()); }
     if (kind === 'speed') { this.mult = Math.max(0.02, this.mult * (1 + amount)); this.speed = this.mult * this.circ; }
-    if (kind === 'elev') this.elev = THREE.MathUtils.clamp(this.elev + THREE.MathUtils.degToRad(amount), -1.4, 1.4);
+    if (kind === 'elev') this.elev = THREE.MathUtils.clamp(this.elev + THREE.MathUtils.degToRad(amount), -MAX_ELEV, MAX_ELEV);
     this.app.audio.click(1 + this.speed / 300);
     this.refresh(true);
   }
