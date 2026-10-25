@@ -137,6 +137,21 @@ function trailOffset(ts, rx, ry, rz, out) {
   if (f === 'galactic') return out.copy(DRIFT_DIR).multiplyScalar(settings.drift * (ts - sim.t));
   return out.set(0, 0, 0);
 }
+// Seen from the Sun, a trail longer than one orbit just retraces itself: keep it to about one
+// lap (in the moving frames the laps spread out into the helix, so leave those alone).
+function trailSpan(b) {
+  if (frame() !== 'helio' || b.kind === 'star') return Infinity;
+  const star = sim.dominantStar(b);
+  if (!star) return Infinity;
+  const r = Math.hypot(b.x - star.x, b.y - star.y, b.z - star.z);
+  const v2 = (b.vx - star.vx) ** 2 + (b.vy - star.vy) ** 2 + (b.vz - star.vz) ** 2;
+  const mu = 4 * Math.PI * Math.PI * star.mass;
+  const energy = v2 / 2 - mu / r;
+  if (energy >= 0) return Infinity; // unbound: show the whole path
+  const a = -mu / (2 * energy);
+  return 0.92 * Math.sqrt(a ** 3 / star.mass);
+}
+
 function predictedToRender(p, out) {
   const f = frame();
   if (f === 'helio') return out.set(p[0] - p[4], p[1] - p[5], p[2] - p[6]);
@@ -1300,11 +1315,13 @@ function hzTexture() {
   cv.width = 256; cv.height = 4;
   const ctx = cv.getContext('2d');
   const g = ctx.createLinearGradient(0, 0, 256, 0);
-  g.addColorStop(0, 'rgba(80,230,140,0.55)');
-  g.addColorStop(0.04, 'rgba(80,230,140,0.12)');
-  g.addColorStop(0.5, 'rgba(80,230,140,0.17)');
-  g.addColorStop(0.96, 'rgba(80,230,140,0.12)');
-  g.addColorStop(1, 'rgba(80,230,140,0.55)');
+  g.addColorStop(0, 'rgba(110,255,170,0.95)');
+  g.addColorStop(0.03, 'rgba(80,240,150,0.45)');
+  g.addColorStop(0.12, 'rgba(80,230,140,0.3)');
+  g.addColorStop(0.5, 'rgba(80,230,140,0.36)');
+  g.addColorStop(0.88, 'rgba(80,230,140,0.3)');
+  g.addColorStop(0.97, 'rgba(80,240,150,0.45)');
+  g.addColorStop(1, 'rgba(110,255,170,0.95)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 256, 4);
   const t = new THREE.CanvasTexture(cv);
@@ -1327,7 +1344,14 @@ function updateHZ() {
         m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: HZ_TEX, transparent: true, side: THREE.DoubleSide, depthWrite: false }));
         m.rotation.x = -Math.PI / 2;
         m.name = s.id;
-        const el2 = el('div', 'label hz-label', '<b>Habitable zone</b><small>liquid water possible</small>');
+        // crisp glowing edges, so the band reads at any zoom
+        for (const r of [r0, r1]) {
+          const pts = Array.from({ length: 241 }, (_, i) => new THREE.Vector3(Math.cos((i / 240) * Math.PI * 2) * r, Math.sin((i / 240) * Math.PI * 2) * r, 0));
+          const edge = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x8dffbf, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
+          edge.name = 'edge';
+          m.add(edge);
+        }
+        const el2 = el('div', 'label hz-label', '<b>🌍 Habitable zone</b><small>where Earth can keep liquid water</small>');
         const lab = new CSS2DObject(el2);
         lab.position.set(0, -r1, 0); // ring is rotated, so local -y is "in front"
         lab.center.set(0.5, 0);
@@ -1335,10 +1359,14 @@ function updateHZ() {
         hzGroup.add(m);
       }
       toRender(s, m.position);
+      // a slow breathing glow draws the eye without flashing
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 700);
+      m.material.opacity = 0.85 + 0.15 * pulse;
+      for (const c of m.children) if (c.name === 'edge') c.material.opacity = 0.6 + 0.4 * pulse;
     }
   }
   for (const c of [...hzGroup.children]) {
-    if (!want.has(c.name)) { c.traverse((o) => { if (o.isCSS2DObject) o.element.remove(); }); c.removeFromParent(); c.geometry.dispose(); }
+    if (!want.has(c.name)) { c.traverse((o) => { if (o.isCSS2DObject) o.element.remove(); o.geometry?.dispose(); }); c.removeFromParent(); }
   }
 }
 
@@ -1673,7 +1701,7 @@ function frameLoop(now) {
     views.update(toRender, camera, S.selected, dt, { h: renderer.domElement.clientHeight });
     views.declutter(camera, S.selected, { w: innerWidth, h: innerHeight });
     trails.visible = settings.trails;
-    trails.update(toRender, trailOffset);
+    trails.update(toRender, trailOffset, trailSpan);
     belt.update(settings.belt ? sim.belt : null, toRenderXYZ);
     const gal = frame() === 'galactic';
     const ref = refRender();

@@ -458,7 +458,9 @@ export class Trails {
   }
 
   // offset(tSample, refX, refY, refZ, out) gives the frame shift for a stored sample.
-  update(toRender, offset) {
+  // span(body), if given, caps how much time a trail covers (years): a fast inner planet would
+  // otherwise trace its orbit over and over, and the additive overlaps glow far too bright.
+  update(toRender, offset, span) {
     this.group.visible = this.visible;
     if (!this.visible) return;
     const off = new THREE.Vector3(), cur = new THREE.Vector3();
@@ -470,7 +472,12 @@ export class Trails {
       }
       const end = t.dead || this.count;
       const avail = Math.min(end - t.start, TRAIL_CAP - (this.count - end));
-      const n = Math.max(0, Math.min(avail, Math.floor(TRAIL_CAP * this.length)));
+      let n = Math.max(0, Math.min(avail, Math.floor(TRAIL_CAP * this.length)));
+      const maxT = b && span ? span(b) : Infinity;
+      if (maxT < Infinity) {
+        const tEnd = this.times[(end - 1 + TRAIL_CAP) % TRAIL_CAP];
+        while (n > 2 && tEnd - this.times[(end - n) % TRAIL_CAP] > maxT) n--;
+      }
       const pos = t.line.geometry.attributes.position.array, col = t.line.geometry.attributes.color.array;
       const c = t.color, boost = b?.spawned ? 1.2 : 0.8;
       let w = 0;

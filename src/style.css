@@ -77,6 +77,21 @@ body.rewinding .timebar { border-color: rgba(255, 179, 71, 0.6); }
 .seg { grid-area: views; justify-self: center; display: flex; padding: 3px; border-radius: 12px; background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
 .seg button { border: 0; background: none; padding: 7px 8px; border-radius: 9px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
 .seg button.on { background: rgba(111, 211, 255, 0.16); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-strong); }
+/* iridescent view tabs: an oil-slick sheen on the frame and labels, and a shimmering glow on the selected one */
+.seg { position: relative; border-color: transparent; box-shadow: 0 0 14px rgba(150, 120, 255, 0.25); }
+.seg::before { content: ''; position: absolute; inset: -1px; border-radius: inherit; padding: 1.5px; pointer-events: none;
+  background: linear-gradient(115deg, #6fd3ff, #b28bff, #ff8bd8, #ffd36b, #7dffb8, #6fd3ff); background-size: 300% 100%; animation: iri-shift 6s linear infinite;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+.seg button { font-weight: 600; color: #b9c6e4; }
+.seg button.on {
+  color: transparent; background-image: linear-gradient(115deg, #8fe0ff, #c9a8ff, #ffa8e2, #ffe08f, #9dffc8, #8fe0ff), linear-gradient(rgba(140, 160, 255, 0.18), rgba(140, 160, 255, 0.18));
+  background-size: 300% 100%, 100% 100%; -webkit-background-clip: text, padding-box; background-clip: text, padding-box;
+  box-shadow: inset 0 0 0 1px rgba(200, 170, 255, 0.6), 0 0 12px rgba(178, 139, 255, 0.55);
+  animation: iri-shift 3s linear infinite, iri-glow 1.6s ease-in-out infinite;
+}
+@keyframes iri-shift { to { background-position: 300% 0, 0 0; } }
+@keyframes iri-glow { 50% { box-shadow: inset 0 0 0 1px rgba(255, 200, 240, 0.9), 0 0 20px rgba(255, 139, 216, 0.75); } }
+@media (prefers-reduced-motion: reduce) { .seg::before, .seg button.on { animation: none; } }
 
 /* ---------------- telemetry */
 .telemetry {
@@ -347,8 +362,8 @@ kbd { font: 11px var(--mono); padding: 1px 5px; border: 1px solid var(--line-str
 .layer span { display: flex; flex-direction: column; }
 .layer small { color: var(--muted); font-size: 12px; }
 .hz-label { pointer-events: none; }
-.hz-label b { color: #7ff0ad; font-size: 11px; }
-.hz-label small { padding-left: 0; color: #9fd9b6; }
+.hz-label b { color: #8dffbf; font-size: 13px; text-shadow: 0 0 8px rgba(80, 240, 150, 0.8); }
+.hz-label small { padding-left: 0; color: #b5f0cc; }
 
 /* ---------------- loading + drop */
 #loading { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: grid; place-content: center; justify-items: center; gap: 14px; color: var(--muted); font-size: 13px; letter-spacing: 0.1em; transition: opacity 0.5s; }
@@ -361,7 +376,7 @@ body.dropping #drop-hint { display: grid; }
 /* ---------------- wider screens */
 @media (min-width: 760px) {
   #btn-sound { display: grid; }
-  .seg button { padding: 7px 14px; font-size: 13px; }
+  .seg button { padding: 8px 14px; font-size: 14px; }
   .topbar { grid-template-columns: auto 1fr auto; grid-template-areas: 'brand views actions'; left: 14px; right: 14px; }
   .pill span { display: inline; }
   .desktop-only { display: inline-flex; }
