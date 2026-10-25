@@ -433,9 +433,10 @@ sim.on((ev) => {
 });
 
 // ---------------------------------------------------------------- launch follow-up
-// Angry Birds style: after a launch the camera rides behind the shot like a cannonball, live, for up to ~10 s (or until
+// Angry Birds style: after a launch the camera follows the shot from above, live, for up to ~10 s (or until
 // it hits something and the dust settles), then the same flight re-runs three times from
-// different angles, about 10 s each, before handing back to the present. Skippable throughout.
+// different angles, about 10 s each, before handing back to the present (the view from the target
+// only when it hit something). Skippable throughout.
 const REEL_SECONDS = 10;
 const REEL_CAMS = ['Side view', 'Top-down', 'From the target'];
 
@@ -448,9 +449,14 @@ function startFlight(b, shot) {
   // pace it so the predicted impact lands at ~7 s, or ~1 predicted path plays in 10 s
   const years = shot.hitIn ? shot.hitIn / 0.7 : shot.years || 1;
   S.speed = THREE.MathUtils.clamp(years / REEL_SECONDS, 0.002, 50);
-  // cannonball cam: carry straight on from the slingshot view, riding just behind the shot
+  // follow it from well back and above, so you see where it's going as well as the shot
   S.selected = b.id;
-  setCamMode('ride');
+  setCamMode('follow');
+  const host = sim.get(shot.host) || sim.dominantStar(b);
+  const d = host ? Math.hypot(b.x - host.x, b.y - host.y, b.z - host.z) : 1;
+  const v = renderVel(b);
+  const back = v.lengthSq() > 0 ? v.normalize().negate() : camera.position.clone().sub(controls.target).normalize();
+  rig.offsetGoal = back.multiplyScalar(0.6).add(new THREE.Vector3(0, 1, 0)).normalize().multiplyScalar(THREE.MathUtils.clamp(d * 1.2, sim.radius(b) * 15, 80));
   document.body.classList.add('flying');
   reelBar(`<span><b>🎯 In flight</b> ${b.name}</span>`, [['Skip ▸', () => endFlight()]]);
 }
@@ -488,11 +494,14 @@ function endFlight() {
   nextReel();
 }
 
+// watching it come in from the target only makes sense when it hit one
+const reelCount = (F) => (F.hitT ? REEL_CAMS.length : 2);
+
 function nextReel() {
   const R = S.reel;
   if (!R) return;
   R.i++;
-  if (R.i >= REEL_CAMS.length) return finishReels();
+  if (R.i >= reelCount(R.F)) return finishReels();
   const F = R.F;
   sim.restore(F.snap);
   trails.rewindTo(F.trail);
@@ -504,7 +513,7 @@ function nextReel() {
   S.playing = true;
   aimReelCamera(R.i);
   document.body.classList.add('reeling');
-  reelBar(`<span><b>▶ Replay ${R.i + 1}/${REEL_CAMS.length}</b> ${REEL_CAMS[R.i]}</span>`, [
+  reelBar(`<span><b>▶ Replay ${R.i + 1}/${reelCount(F)}</b> ${REEL_CAMS[R.i]}</span>`, [
     ['Skip ▸', () => nextReel()],
     ['Done', () => finishReels()],
   ]);
@@ -527,9 +536,9 @@ function aimReelCamera(i) {
   const gap = ab.length();
   const Ra = sim.radius(focus);
   if (i === 2) {
-    // from just behind what it's heading for, watching it come in
-    const back = ab.clone().normalize().negate().add(new THREE.Vector3(0, 0.3, 0)).normalize();
-    rig.offsetGoal = back.multiplyScalar(THREE.MathUtils.clamp(Ra * 7, Ra * 5, gap * 0.8 + Ra * 2));
+    // from behind and above what it hit, far enough back to see the shot coming in
+    const back = ab.clone().normalize().negate().add(new THREE.Vector3(0, 0.7, 0)).normalize();
+    rig.offsetGoal = back.multiplyScalar(THREE.MathUtils.clamp(gap * 2.2 + Ra * 8, Ra * 16, 400));
     return;
   }
   if (i === 1) {
@@ -1462,7 +1471,7 @@ function openMenu() {
       <input type="range" id="set-drift" min="0" max="1" step="0.001"></label>
     <label class="row">Contrail length <input type="range" id="set-trail" min="0.05" max="1" step="0.01"></label>
     <label class="row check"><input type="checkbox" id="set-belt"> Asteroid belt</label>
-    <label class="row check"><input type="checkbox" id="set-reels"> Cannonball cam and 3 replays after each launch</label>
+    <label class="row check"><input type="checkbox" id="set-reels"> Follow cam and replays after each launch</label>
     <label class="row check"><input type="checkbox" id="set-slowmo"> Auto slow-mo on close calls</label>
     <label class="row check"><input type="checkbox" id="set-lens"> Gravitational lensing</label>
     <label class="row check"><input type="checkbox" id="set-bloom"> Glow (bloom)</label>
