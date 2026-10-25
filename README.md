@@ -1,4 +1,6 @@
-# Solar System Physics Simulator
+# Heliosling
+
+A solar system physics sandbox: fling anything from asteroids to black holes and watch real gravity play out.
 
 The solar system in your browser, running on real N-body gravity and starting from where the planets are today. Launch anything from an asteroid to a black hole at it, and watch the Sun's corkscrew ride through the Milky Way. Mobile first, works on desktop too.
 
