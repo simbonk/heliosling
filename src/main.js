@@ -368,6 +368,7 @@ function resetToShot() {
 const J2000 = Date.UTC(2000, 0, 1, 12);
 function freshUniverse() {
   abortReel();
+  S.zoneTold = false; S.lastZone = null;
   views.clear();
   trails.reset();
   sim.initSolarSystem({ belt: 0 });
@@ -1548,7 +1549,15 @@ function renderTelemetry() {
   const earth = sim.get('earth');
   if (earth) {
     if (earth.tagline !== es.short) { earth.tagline = es.short; earth._dirty = true; }
-    if (S.lastZone && S.lastZone !== es.zone && sim.t > 0) toast(es.zone === 'ok' ? '🌍 Earth is back in the habitable zone' : `🌍 Earth has left the habitable zone: ${es.text}`);
+    // An orbit that grazes the edge flips in and out every lap: say so the first time, then
+    // only when a new state has held for a while (a real change, not the same wobble again).
+    if (S.lastZone && S.lastZone !== es.zone && sim.t > 0) {
+      const settled = sim.t - (S.zoneSince ?? 0) > 1.5;
+      if (!S.zoneTold || settled) toast(es.zone === 'ok' ? 'Earth is back in the habitable zone' : `Earth has left the habitable zone: ${es.text}`);
+      S.zoneTold = true;
+      S.zoneSince = sim.t;
+    }
+    if (S.lastZone !== es.zone && !S.lastZone) S.zoneSince = sim.t;
     S.lastZone = es.zone;
   }
 }
