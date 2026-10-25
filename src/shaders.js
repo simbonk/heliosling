@@ -150,9 +150,10 @@ export function makeGravityGrid() {
       varying float vSag; varying float vEdge;
       void main(){
         #include <logdepthbuf_fragment>
-        float fade = 1.0 - smoothstep(0.55, 1.0, vEdge);
+        // bright only near the middle, melting into the dark well before the edge
+        float fade = pow(1.0 - smoothstep(0.0, 0.95, vEdge), 1.6);
         vec3 c = mix(vec3(0.1, 0.45, 0.9), vec3(0.75, 0.35, 1.0), clamp(vSag / (scale * 0.3), 0.0, 1.0));
-        gl_FragColor = vec4(c * fade * 0.55, fade);
+        gl_FragColor = vec4(c * fade * 0.3, fade);
       }`,
   });
   const mesh = new THREE.LineSegments(g, mat);

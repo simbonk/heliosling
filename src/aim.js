@@ -218,7 +218,7 @@ export class Aim {
     const marks = [];
     if (inward) {
       const pro = UP.clone().cross(inward).negate();
-      marks.push({ label: 'Orbit ▸', d: pro, cls: 'pro' }, { label: `${host.kind === 'star' ? '☀' : '●'} ${host.name}`, d: inward, cls: 'host' });
+      marks.push({ label: 'Orbit ▸', d: pro, cls: 'pro' }, { label: host.name, d: inward, cls: 'host' });
     }
     const near = sim.bodies.filter((b) => b.alive && b.id !== host.id && b.kind !== 'rock' && b.kind !== 'comet')
       .map((b) => ({ b, d: this.app.toRender(b, v).distanceTo(this.P) })).sort((a, b) => a.d - b.d).slice(0, 3);

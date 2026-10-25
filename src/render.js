@@ -232,7 +232,7 @@ export class BodyViews {
     this.group.add(view.marker);
 
     const el = document.createElement('div');
-    el.className = `label kind-${b.kind}${b.spawned ? ' spawned' : ''}`;
+    el.className = `label kind-${b.kind}${b.spawned ? ' spawned' : ''}${b.id === 'earth' ? ' status' : ''}`;
     el.innerHTML = `<span class="dot" style="background:${b.kind === 'blackhole' ? '#ff9a4a' : b.color}"></span><b></b><small></small>`;
     el.addEventListener('pointerdown', (e) => { e.stopPropagation(); this.onLabelClick?.(b.id); });
     view.labelEl = el;
@@ -486,7 +486,7 @@ export class Trails {
         const k = s % TRAIL_CAP;
         offset(this.times[k], this.ref[k * 3], this.ref[k * 3 + 1], this.ref[k * 3 + 2], off);
         pos[w * 3] = t.buf[k * 3] + off.x; pos[w * 3 + 1] = t.buf[k * 3 + 1] + off.y; pos[w * 3 + 2] = t.buf[k * 3 + 2] + off.z;
-        const a = Math.pow((i + 1) / n, 1.6) * boost;
+        const a = Math.pow((i + 1) / n, 2.6) * boost;
         col[w * 3] = c.r * a; col[w * 3 + 1] = c.g * a; col[w * 3 + 2] = c.b * a;
         w++;
       }

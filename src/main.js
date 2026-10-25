@@ -11,6 +11,7 @@ import { makeLensPass, makeGravityGrid } from './shaders.js';
 import { MISSIONS, ACHIEVEMENTS, achievementsForEvent, describe, starsFor } from './missions.js';
 import { buildSave, downloadJSON, readFile, encodeShare, decodeShare, store } from './save.js';
 import { planetTexture, earthNightTexture } from './textures.js';
+import { icon, orb } from './icons.js';
 import { $, el, modal, closeModal, sheet, toast as popToast, fmtMass, fmtNum, installFastTap } from './ui.js';
 
 const MOBILE = matchMedia('(pointer: coarse)').matches || innerWidth < 760;
@@ -474,7 +475,7 @@ function startFlight(b, shot) {
   const back = v.lengthSq() > 0 ? v.normalize().negate() : camera.position.clone().sub(controls.target).normalize();
   rig.offsetGoal = back.multiplyScalar(0.6).add(new THREE.Vector3(0, 1, 0)).normalize().multiplyScalar(THREE.MathUtils.clamp(d * 1.2, sim.radius(b) * 15, 80));
   document.body.classList.add('flying');
-  reelBar(`<span><b>🎯 In flight</b> ${b.name}</span>`, [['Skip ▸', () => endFlight()]]);
+  reelBar(`<span><b>In flight</b> ${b.name}</span>`, [['Skip ▸', () => endFlight()]]);
 }
 
 function reelBar(label, buttons) {
@@ -654,7 +655,7 @@ const MAX_SHOTS = 40;
 const savedShots = () => store.get(SHOTS_KEY, []);
 
 function offerSave(F) {
-  reelBar('<span><b>💾 Save this shot?</b> Keep it to replay later</span>', [
+  reelBar(`<span class="rb-save">${icon('bookmark')}<span><b>Save this shot?</b> Keep it to replay later</span></span>`, [
     ['No', () => { $('#replaybar').hidden = true; }],
     ['Save…', () => { $('#replaybar').hidden = true; promptSave(F); }],
   ]);
@@ -672,7 +673,7 @@ function shotTitle(F) {
 
 function promptSave(F) {
   modal({
-    title: '💾 Save shot',
+    title: 'Save shot',
     body: `<label class="save-name">Name<input id="shot-name" maxlength="60" value="${shotTitle(F).replace(/"/g, '&quot;')}"></label>`,
     actions: [
       { label: 'Cancel', onClick: closeModal },
@@ -698,7 +699,7 @@ function openSaved() {
   const fmt = (ms) => new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   const rows = list.length ? list.map((r) => `<div class="shot-row" data-id="${r.id}"><div><b>${r.name.replace(/</g, '&lt;')}</b><small>${fmt(r.at)} · ${r.meta.hitDt != null ? 'impact' : 'flight'}</small></div><button data-play="${r.id}" class="primary">▶ Watch</button><button data-del="${r.id}" aria-label="Delete ${r.name.replace(/"/g, '')}">✕</button></div>`).join('')
     : '<p class="muted">No saved shots yet. After a launch plays out, choose <b>Save</b> to keep it here.</p>';
-  sheet('💾 Saved shots', `<div class="shot-list">${rows}</div>`, (box) => {
+  sheet('Saved shots', `<div class="shot-list">${rows}</div>`, (box) => {
     box.querySelectorAll('[data-play]').forEach((b) => { b.onclick = () => { closeModal(); playShot(savedShots().find((r) => r.id === b.dataset.play)); }; });
     box.querySelectorAll('[data-del]').forEach((b) => { b.onclick = () => {
       store.set(SHOTS_KEY, savedShots().filter((r) => r.id !== b.dataset.del));
@@ -726,6 +727,24 @@ function playShot(rec) {
   };
   S.reel = { F, present, presentTrail: 0, tEnd: sim.t + m.dur, i: -1 };
   nextReel();
+}
+
+// The last run, offered once on load as a small floating pill that gets out of the way as soon as
+// you start doing something (it's also in the menu).
+function resumeLastRun() {
+  const auto = store.get('gm.autosave');
+  $('#resume-pill')?.remove();
+  try { applySave(auto); } catch {}
+}
+function showResumePill(auto) {
+  const pill = el('button', 'resume-pill', `${icon('history')}<span>Resume last run <small>year ${(START_YEAR + auto.sim.t).toFixed(1)}</small></span>`);
+  pill.id = 'resume-pill';
+  pill.onclick = resumeLastRun;
+  document.body.appendChild(pill);
+  const gone = () => { pill.classList.add('gone'); setTimeout(() => pill.remove(), 400); };
+  setTimeout(gone, 12000);
+  const away = (e) => { if (!pill.contains(e.target)) { gone(); window.removeEventListener('pointerdown', away, true); } };
+  setTimeout(() => window.addEventListener('pointerdown', away, true), 1500);
 }
 
 function updateSavedBadge() {
@@ -763,14 +782,15 @@ function renderLog(fresh) {
   const list = box.querySelector('.log-list');
   const keep = list ? list.scrollTop : 0;
   const last = chronicle[chronicle.length - 1];
-  const line = (c) => `${c.icon ? `${c.icon} ` : ''}${c.text}`;
-  const row = (c, i) => `<li class="${c.kind || ''}${c.severe ? ' severe' : ''}"><span class="ts">${stamp(c.t)}</span><span class="tx">${line(c)}</span>${c.replay ? `<button class="replay" data-r="${i}">▶ Replay</button>` : ''}${c.action ? `<button class="replay" data-act="${i}">${c.action.label}</button>` : ''}</li>`;
+  // a small status dot instead of an emoji; any emoji in the wording is dropped too
+  const line = (c) => `<i class="ldot ${c.severe ? 'severe' : c.kind || ''}"></i>${String(c.text).replace(/\p{Extended_Pictographic}\uFE0F?\s*/gu, '')}`;
+  const row = (c, i) => `<li class="${c.kind || ''}${c.severe ? ' severe' : ''}"><span class="ts">${stamp(c.t)}</span><span class="tx">${line(c)}</span>${c.replay ? `<button class="replay" data-r="${i}">${icon('replay')} Replay</button>` : ''}${c.action ? `<button class="replay" data-act="${i}">${c.action.label}</button>` : ''}</li>`;
   box.classList.toggle('open', LOG.open);
   const pending = !LOG.open && last?.action;
   // a pending offer (resume last run) takes over the collapsed bar as a single tap target
   box.innerHTML = pending
-    ? `<div class="log-offer"><button class="offer-btn" data-act="${chronicle.length - 1}">${last.icon} ${last.action.label}</button><button class="log-head" aria-expanded="false" aria-label="Open event log"><span class="lh-chev">▾</span></button></div>`
-    : `<button class="log-head" aria-expanded="${LOG.open}"><span class="lh-last">${LOG.open || !last ? '📜 Event log' : line(last)}</span>${LOG.unread && !LOG.open ? `<b class="lh-n">${LOG.unread}</b>` : ''}<span class="lh-chev">${LOG.open ? '▴' : '▾'}</span></button>
+    ? `<div class="log-offer"><button class="offer-btn" data-act="${chronicle.length - 1}">${last.action.label}</button><button class="log-head" aria-expanded="false" aria-label="Open event log"><span class="lh-chev">▾</span></button></div>`
+    : `<button class="log-head" aria-expanded="${LOG.open}"><span class="lh-last">${LOG.open || !last ? 'Event log' : line(last)}</span>${LOG.unread && !LOG.open ? `<b class="lh-n">${LOG.unread}</b>` : ''}<span class="lh-chev">${LOG.open ? '▴' : '▾'}</span></button>
     ${LOG.open ? `<ol class="log-list">${chronicle.length ? chronicle.map(row).reverse().join('') : '<li class="muted">Nothing yet. Launch something!</li>'}</ol>` : ''}`;
   if (LOG.open) box.querySelector('.log-list').scrollTop = keep;
   box.querySelector('.log-head').onclick = () => { LOG.open = !LOG.open; LOG.unread = 0; renderLog(); };
@@ -1174,6 +1194,7 @@ function updateDock() {
   $('#btn-play').innerHTML = isPlaying() ? '<svg viewBox="0 0 24 24"><path d="M7 5h3v14H7zM14 5h3v14h-3z"/></svg>' : '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
   $('#btn-play').setAttribute('aria-label', isPlaying() ? 'Pause' : 'Play');
   $('#speed').value = sliderFromSpeed();
+  $('#speed').style.setProperty('--fill', `${(sliderFromSpeed() * 100).toFixed(1)}%`);
   $('#speed-label').textContent = speedText();
   $('#btn-reset').disabled = S.view === 'galaxy';
   $('#btn-back').disabled = S.view === 'galaxy' || hist.length < 2;
@@ -1234,6 +1255,7 @@ function tickRewind(dt) {
 }
 const fmtYears = (y) => (y < 1 / 12 ? `${(y * 365.25).toFixed(0)} days` : y < 1 ? `${(y * 12).toFixed(1)} months` : `${y.toFixed(1)} years`);
 $('#speed').oninput = (e) => {
+  e.target.style.setProperty('--fill', `${(+e.target.value * 100).toFixed(1)}%`);
   const v = speedFromSlider(+e.target.value);
   if (S.view === 'galaxy') S.galaxySpeed = v; else S.speed = v;
   $('#speed-label').textContent = speedText();
@@ -1244,7 +1266,7 @@ function buildArsenal() {
   const box = $('#arsenal');
   box.innerHTML = '';
   for (const s of SPAWNABLES) {
-    const c = el('button', 'chip', `<span class="ic">${s.icon}</span><span class="nm">${s.name}</span><span class="ms">${fmtMass(s.mass, true)}</span>`);
+    const c = el('button', 'chip', `<span class="ic">${orb(s)}</span><span class="nm">${s.name}</span><span class="ms">${fmtMass(s.mass, true)}</span>`);
     c.dataset.type = s.type;
     c.title = s.blurb;
     c.onclick = () => (aim.active && aim.spec?.type === s.type ? (aim.cancel(), c.classList.remove('active')) : startAim(s.type));
@@ -1442,7 +1464,7 @@ function updateHZ() {
           edge.name = 'edge';
           m.add(edge);
         }
-        const el2 = el('div', 'label hz-label', '<b>🌍 Habitable zone</b><small>where Earth can keep liquid water</small>');
+        const el2 = el('div', 'label hz-label', '<b>Habitable zone</b><small>where Earth can keep liquid water</small>');
         const lab = new CSS2DObject(el2);
         lab.position.set(0, -r1, 0); // ring is rotated, so local -y is "in front"
         lab.center.set(0.5, 0);
@@ -1471,7 +1493,7 @@ function stabilityInfo() {
 function renderTelemetry() {
   const box = $('#telemetry');
   if (S.view === 'galaxy') {
-    box.innerHTML = `<div><span>EPOCH</span><b>${galaxy.timeLabel()}</b></div><div><span>ORBIT</span><b>${((galaxy.t + 540) / 230).toFixed(2)} galactic yr</b></div><div class="muted small">Vertical bobbing ×3 for visibility</div>`;
+    box.innerHTML = `<div class="t-strip"><span>EPOCH</span><b>${galaxy.timeLabel()}</b><em>•</em><span>ORBIT</span><b>${((galaxy.t + 540) / 230).toFixed(2)} gal. yr</b></div><div class="t-note">Vertical bobbing ×3 for visibility</div>`;
     return;
   }
   const st = stabilityInfo();
@@ -1480,15 +1502,14 @@ function renderTelemetry() {
   const dil = S.slow < 0.95 ? '<i class="badge">SLOW-MO</i>' : S.dilated ? '<i class="badge warn">BUSY</i>' : '';
   if (!box.querySelector('#earth-pill')) {
     box.innerHTML = `
-      <div><span>YEAR</span><b class="t-year"></b><i class="t-badge"></i></div>
-      <div><span>STABILITY</span><b class="t-stab"></b></div>
-      <button class="earth-pill" id="earth-pill" aria-label="Earth status, tap to center on Earth"><span class="globe">🌍</span><span><b>Earth</b> <span class="t-earth"></span></span></button>`;
+      <div class="t-strip"><span>YEAR</span><b class="t-year"></b><em>•</em><i class="t-dot"></i><span>STABILITY</span><b class="t-stab"></b><i class="t-badge"></i></div>
+      <button class="earth-pill" id="earth-pill" aria-label="Earth status, tap to center on Earth"><i class="globe"></i><span><b>Earth</b> <span class="t-earth"></span></span></button>`;
     box.querySelector('#earth-pill').onclick = () => { if (sim.get('earth')) centerOn('earth'); };
   }
   const set = (sel, txt) => { const n = box.querySelector(sel); if (n.textContent !== txt) n.textContent = txt; };
   set('.t-year', year.toFixed(2));
-  set('.t-stab', `${st.s.toFixed(0)}% ${st.label}`);
-  box.querySelector('.t-stab').className = `t-stab ${st.cls}`;
+  set('.t-stab', `${st.s.toFixed(0)}% (${st.label})`);
+  box.querySelector('.t-dot').className = `t-dot ${st.cls}`;
   set('.t-earth', es.text);
   box.querySelector('#earth-pill').className = `earth-pill ${es.cls}`;
   const badge = box.querySelector('.t-badge');
@@ -1586,14 +1607,15 @@ function openTrophies() {
 function openMenu() {
   sheet('Menu', `
     <div class="menu-grid">
-      <button data-m="save">⬇ Save .json</button>
-      <button data-m="load">⬆ Load .json</button>
-      <button data-m="share">🔗 Copy share link</button>
-      <button data-m="new">↺ Reset</button>
-      <button data-m="log">📜 Event log</button>
-      <button data-m="ach">🏆 Achievements · ${S.achievements.size}/${ACHIEVEMENTS.length}</button>
-      <button data-m="help">❔ How it works</button>
-      <button data-m="sound">${audio.muted ? '🔇 Sound off' : '🔊 Sound on'}</button>
+      ${store.get('gm.autosave')?.sim?.bodies?.some((b) => b.spawned) ? `<button data-m="resume">${icon('history')} Resume last run</button>` : ''}
+      <button data-m="save">Save .json</button>
+      <button data-m="load">Load .json</button>
+      <button data-m="share">Copy share link</button>
+      <button data-m="new">Reset</button>
+      <button data-m="log">Event log</button>
+      <button data-m="ach">Achievements · ${S.achievements.size}/${ACHIEVEMENTS.length}</button>
+      <button data-m="help">How it works</button>
+      <button data-m="sound">${audio.muted ? 'Sound off' : 'Sound on'}</button>
     </div>
     <h4>Advanced settings</h4>
     <label class="row">Solar view frame
@@ -1609,11 +1631,13 @@ function openMenu() {
   `, (box) => {
     box.querySelector('[data-m=save]').onclick = () => { downloadJSON(buildSave(sim, { view: S.view, speed: S.speed, frame: settings.frame, drift: settings.drift }), `universe-${Math.round(START_YEAR + sim.t)}.json`); toast('Saved.'); };
     box.querySelector('[data-m=load]').onclick = loadFromFile;
+    const res = box.querySelector('[data-m=resume]');
+    if (res) res.onclick = () => { closeModal(); resumeLastRun(); };
     box.querySelector('[data-m=share]').onclick = () => share();
     box.querySelector('[data-m=new]').onclick = () => { closeModal(); resetFlow(); };
     box.querySelector('[data-m=log]').onclick = openChronicle;
     box.querySelector('[data-m=help]').onclick = openHelp;
-    box.querySelector('[data-m=sound]').onclick = (e) => { audio.ensure(); audio.setMuted(!audio.muted); updateSound(); e.currentTarget.textContent = audio.muted ? '🔇 Sound off' : '🔊 Sound on'; };
+    box.querySelector('[data-m=sound]').onclick = (e) => { audio.ensure(); audio.setMuted(!audio.muted); updateSound(); e.currentTarget.textContent = audio.muted ? 'Sound off' : 'Sound on'; };
     box.querySelector('[data-m=ach]').onclick = openTrophies;
     const fr = box.querySelector('#set-frame');
     fr.value = settings.frame;
@@ -1689,7 +1713,7 @@ $('#btn-saved').onclick = openSaved;
 updateSavedBadge();
 $('#btn-menu').onclick = openMenu;
 $('#btn-sound').onclick = () => { audio.ensure(); audio.setMuted(!audio.muted); updateSound(); };
-function updateSound() { $('#btn-sound').textContent = audio.muted ? '🔇' : '🔊'; $('#btn-sound').setAttribute('aria-label', audio.muted ? 'Unmute' : 'Mute'); }
+function updateSound() { $('#btn-sound').innerHTML = icon(audio.muted ? 'mute' : 'volume'); $('#btn-sound').setAttribute('aria-label', audio.muted ? 'Unmute' : 'Mute'); }
 document.querySelectorAll('#views button').forEach((b) => { b.onclick = () => setView(b.dataset.view); });
 
 // ---------------------------------------------------------------- keyboard
@@ -1841,6 +1865,10 @@ function frameLoop(now) {
 
 // ---------------------------------------------------------------- boot
 installFastTap();
+$('#btn-reset').innerHTML = icon('reset');
+$('#btn-saved').insertAdjacentHTML('afterbegin', icon('bookmark'));
+$('#btn-menu').innerHTML = icon('menu');
+$('#btn-back').innerHTML = icon('rewind');
 buildArsenal();
 buildRail();
 updateSound();
@@ -1860,12 +1888,7 @@ updateDock();
     catch { toast('⚠ That share link looks broken. Here is a fresh solar system.'); }
   }
   const auto = store.get('gm.autosave');
-  if (auto?.sim?.bodies?.some((b) => b.spawned)) {
-    // offered in the event log, not as a pop-up over the view
-    const offer = { icon: '💾', text: `Your last run from year ${(START_YEAR + auto.sim.t).toFixed(1)} is saved.`, kind: 'note' };
-    offer.action = { label: 'Resume last run', run: () => { offer.action = null; try { applySave(auto); } catch {} } };
-    pushLog(offer);
-  }
+  if (auto?.sim?.bodies?.some((b) => b.spawned)) showResumePill(auto);
   onboarding();
 })();
 

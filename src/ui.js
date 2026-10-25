@@ -95,7 +95,7 @@ export function fmtMass(m, short) {
   if (m >= EARTH * 0.01) return `${+(m / EARTH).toPrecision(3)} M⊕`;
   const kg = m * MSUN_KG;
   const e = Math.floor(Math.log10(kg));
-  return short ? `10^${e} kg` : `${(kg / 10 ** e).toFixed(1)}×10<sup>${e}</sup> kg`;
+  return short ? `10<sup>${e}</sup> kg` : `${(kg / 10 ** e).toFixed(1)}×10<sup>${e}</sup> kg`;
 }
 
 export function fmtNum(n) {
