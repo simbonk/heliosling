@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Play god with the solar system: an interactive N-body physics sandbox in the browser.",
+  "description": "Fling worlds at the solar system and watch what happens. A browser game on real gravity.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

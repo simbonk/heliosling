@@ -1,10 +1,67 @@
 # Heliosling
 
-A solar system physics sandbox: fling anything from asteroids to black holes and watch real gravity play out.
+**Fling worlds at the solar system and watch what happens.**
 
-The solar system in your browser, running on real N-body gravity and starting from where the planets are today. Launch anything from an asteroid to a black hole at it, and watch the Sun's corkscrew ride through the Milky Way. Mobile first, works on desktop too.
+Grab an asteroid, a rogue Earth, a spare Sun or a black hole, pull back the slingshot, and let go. Gravity
+does the rest: near misses that bend into slingshots, captures, ejections, planets swallowed whole, and the
+occasional extinction-level fireball. It runs in your browser, works best on a phone, and needs no account.
 
-## Run it
+**Play it:** [heliosling.vercel.app](https://heliosling.vercel.app)
+
+## How to play
+
+1. **Pick something to throw** from the bar at the bottom: asteroid, Halley's Comet, a rogue Moon or Earth,
+   a Super-Jupiter, a brown or red dwarf, a Sun twin, a neutron star or a black hole.
+2. **Tap where it starts.**
+3. **Pull back and let go.** The camera drops in behind the slingshot. Pull further to throw harder, and pull
+   to one side to aim the other way. Drag the sky to look around and tip the shot up or down. The solid ring
+   is the speed for a neat circular orbit and the dashed ring is escape speed. A ghost path shows where it is going.
+4. **Watch.** The camera chases your shot, then plays it back from the side and from above, plus from the
+   target's point of view if you hit something. Save the good ones and rewatch them from the 🔖 button.
+
+Made a mess? **Rewind** winds back 10 seconds per press, and **Reset** puts the solar system back to today.
+
+## Three ways to look at it
+
+- **Helix:** the Sun is really flying through the galaxy, so every planet traces a corkscrew behind it.
+- **Solar:** the classic view from the Sun, with neat ellipses.
+- **Milky Way:** the Sun's 230-million-year lap around the galaxy, with Earth's great extinctions pinned
+  where we were when they happened.
+
+## Things to try
+
+- Throw a **black hole** through the inner planets and watch it eat them.
+- Drop a **Sun twin** nearby and turn the solar system into a binary star.
+- Knock **Earth** out of the habitable zone, then try to nudge it back before the oceans boil or freeze.
+- Thread a **comet** past Jupiter for a gravity slingshot out of the solar system.
+- Rack up all 15 achievements.
+
+## How real is it?
+
+Real enough to be surprising, fake enough to be fun.
+
+**Real:**
+- Every body pulls on every other with Newton's gravity.
+- The planets start where they actually are in the sky today (from NASA JPL's orbital data).
+- Orbits, slingshots, captures and escapes all come out of the maths. None of it is scripted.
+- Impact energies are computed and compared to the asteroid that killed the dinosaurs.
+
+**Pseudo-science, on purpose:**
+- **Sizes:** planets and the Sun are drawn hundreds of times too big so you can actually see them, and they
+  collide at that size. That makes planets juicy targets. In real space they are specks, and almost
+  everything misses. Turn on *True scale* under Layers to see how empty space really is.
+- **Moons:** because Earth is drawn so big, its real moon zone sits inside its drawn ball. Parking things in
+  orbit around planets doesn't really work yet.
+- **Collisions:** two bodies that touch just merge. There are no fragments, rings or tidal shredding.
+- **Climate:** Earth's temperature is a one-line toy model based on how much starlight it gets.
+- **The Milky Way view:** a pretty schematic, not a real galactic orbit.
+
+## Bugs and ideas
+
+Heliosling is fully open source. Found a bug or have an idea? Use **Menu → Bugs & ideas** in the app, or
+[open an issue](https://github.com/simbonk/heliosling/issues). Pull requests are welcome too.
+
+## Run it yourself
 
 ```bash
 npm install
@@ -12,63 +69,28 @@ npm run dev      # http://localhost:5173
 npm run build    # static site in dist/
 ```
 
-### Deploy on Vercel
+It's a static Vite site with no backend or environment variables, so it deploys to Vercel (or any static host)
+as is.
 
-Import the repo in Vercel. It detects Vite automatically (`vercel.json` pins `npm run build` → `dist/`). No environment variables, no backend.
+### Under the hood
 
-## What's in it
-
-**Views**
-- **Helix** (default): the whole system drifts through the galaxy at ~60° to the planets' plane, so every orbit becomes a corkscrew. Drift speed is adjustable up to the real 230 km/s.
-- **Solar**: Sun-centred (or inertial, in settings). Contrails show the familiar ellipses.
-- **Milky Way**: the Sun's 230-million-year lap around Sagittarius A*, with Earth's great extinctions pinned where the Sun was when they happened.
-
-**Launching things** (Angry Birds style, built for touch)
-1. Pick an object from the bar (asteroid, Halley's Comet, rogue Moon/Earth, Super-Jupiter, brown dwarf, red dwarf, Sun twin, neutron star, black hole).
-2. **Place**: tap exactly where it should start.
-3. **Pull & let go**: the camera swings in behind the object, shown see-through, with a slingshot holding it in front of you. Pull back and release: pull to one side to aim the other way, and pull further to fling it faster. The solid ring marks the pull for a circular orbit around whatever dominates that spot, the dashed ring escape speed, and the pull snaps to each. A ghost trajectory shows where it will go while you pull. The compass strip at the top turns the slingshot: drag it, tap a marker (along the orbit, toward the Sun, a nearby planet) to face it, use the ⟲ ⟳ buttons, or drag the sky. Drag the sky to look around: sideways turns the slingshot, up and down tips the shot (and the view) above or below the planets' plane, snapping to level.
-4. **Watch**: the camera follows the shot from above, live, for up to ~10 s (or until it hits something), then the flight re-runs as cinematic replays: side view and top-down, plus a view from the target when it hit one. Skip any time, or turn them off in the menu. Afterwards (and after removing something) the camera goes back to the Helix view.
-
-**Rewind** smoothly winds time back 10 seconds of play per press (press again to go further, up to two minutes; contrails shrink as it goes), then plays forward again. **Reset** (top bar) offers to save the run as JSON first. Tapping a view tab (even the current one) returns to that view's home camera and default time speed. **Centred on ▾** keeps the camera on the Sun, Earth, or anything else, with tilted, top-down, and ride-along angles.
-
-**Engagement**
-- 💾 **Saved shots**: after a launch plays out, choose Save and name it. The 💾 button in the top bar lists your saved shots; Watch replays any of them, then drops you back into your game as it was. Reset leaves saved shots alone.
-- An Earth badge shows its temperature and whether it is still in the habitable zone (the zone itself can be drawn as a band from Layers).
-- 15 achievements and a live system stability index.
-- An event log (top right) collects everything that happens instead of popping messages over the action. Every collision in it has a **Replay** button that re-runs the last few seconds before it as a cut scene: full resolution, stronger glow, denser debris, letterbox bars with the HUD hidden, a side-on camera that slowly circles in, and slow motion into the moment of impact. Then it returns to the present.
-- Auto slow-mo when a launched object has a close call, camera shake on impacts, procedural WebAudio sound (drone that pitches with time warp, cue ratchet, impact boom).
-
-**Visuals** (all procedural, no image assets)
-- Canvas-generated planet textures, Earth day/night shader with city lights and an atmospheric rim, Saturn's rings, black hole accretion disk plus screen-space gravitational lensing, tidal stretching near black holes, bloom.
-- Layers: gravity-well "rubber sheet" grid (on by default), contrails, labels, habitable zone, true scale. Plus label decluttering.
-- Impacts scale with the collision's real kinetic energy: a fireball at the contact point, an ejecta curtain thrown downrange that falls back and glows, a shock front, a temporary debris ring for giant impacts, and infalling streamers for black holes. The event log compares the energy to the dinosaur-killing Chicxulub impact.
-
-## Answers to the design questions
-
-**Are the planets too small to see next to the Sun?** At true scale, yes: Earth is a speck 1/109th the Sun's width, and both vanish at solar-system distances. The default **visible scale** exaggerates radii on a compressed curve (Earth ≈ 1/5 of the Sun instead of 1/109) while keeping distances and masses real, so the physics stays honest. The **True scale** layer switches to true radii; glowing markers and labels keep every body findable. Collisions use the size you see, so hits are much rarer at true scale.
-
-**Should saves be JSON?** Yes, and they're small. Reset asks whether to save first. A save is a snapshot of state (masses, positions, velocities), not a recording: a few KB for the bodies plus ~60 KB if the asteroid belt is included. Share links pack the same snapshot (minus the belt) into the URL hash with deflate compression, around 2–3 KB. The browser also autosaves every 15 seconds and offers to resume.
-
-## Physics notes
-
-- Units: AU, years, solar masses (G = 4π²). Planets start from JPL's J2000 mean orbital elements and are integrated forward to today's date at load.
-- Integrator: kick-drift-kick leapfrog with a global adaptive timestep (2.5% of the shortest pairwise dynamical time). Energy drifts about 3×10⁻⁶ over 100 simulated years.
-- Collisions merge bodies with momentum conserved; a black hole always wins.
-- The asteroid belt is made of test particles pulled by the heavy bodies.
-- The killer-asteroid mission is built by integrating the system backwards from the impact (leapfrog is time-reversible), so the threat is always a real collision course.
-
-## Code map
+- **Stack:** Vite and three.js, with no image assets. Every texture, shader and sound is generated in the browser.
+- **Units:** AU, years and solar masses (G = 4π²).
+- **Integrator:** leapfrog with an adaptive timestep. It is time-reversible, which is what makes rewind
+  and replays exact.
+- **Saves:** small JSON snapshots of masses, positions and velocities. The browser also autosaves and
+  offers to resume.
 
 | File | What it does |
 | --- | --- |
-| `src/physics.js` | N-body sim, collisions, captures, escapes, climate, stability, predictions, save/load |
-| `src/data.js` | Planet elements, spawnable catalogue, display scaling |
-| `src/render.js` | Renderer, bodies, contrails, belt, space dust, effects |
-| `src/shaders.js` | Lensing pass, Earth day/night material, gravity-well grid |
-| `src/textures.js` | Procedural planet, ring, night-light and glow textures |
-| `src/aim.js` | Launch wizard, aiming dial and ghost trajectory |
+| `src/physics.js` | Gravity, collisions, captures, escapes, climate, predictions |
+| `src/data.js` | Planets, the things you can throw, display sizes |
+| `src/aim.js` | The slingshot, compass and ghost path |
+| `src/render.js` | Planets, contrails, asteroid belt, impact effects |
+| `src/shaders.js` | Gravitational lensing, Earth's day/night side, gravity-well grid |
+| `src/textures.js` | Procedural planet textures |
 | `src/galaxy.js` | Milky Way view |
-| `src/missions.js` | Challenges, achievements, event wording |
-| `src/audio.js` | WebAudio synth |
-| `src/save.js` | JSON files, share links, local storage |
-| `src/main.js` | App state, camera rig, HUD wiring, main loop |
+| `src/missions.js` | Achievements and event wording |
+| `src/audio.js` | Procedural sound |
+| `src/save.js` | Save files and local storage |
+| `src/main.js` | App state, camera, HUD and main loop |
