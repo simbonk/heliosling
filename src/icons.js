@@ -12,6 +12,7 @@ const paths = {
   pause: '<path d="M7 4h3v16H7zM14 4h3v16h-3z"/>',
   target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
   replay: '<path d="M6 4l12 8-12 8z"/>',
+  list: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
   chevron: '<path d="M6 9l6 6 6-6"/>',
 };
 export const icon = (name, cls = '') => `<svg class="ico ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]}</svg>`;

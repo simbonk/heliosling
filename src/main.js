@@ -759,7 +759,11 @@ function updateSavedBadge() {
 const chronicle = [];
 const LOG = { open: false, unread: 0 };
 function pushLog(item) {
-  chronicle.push({ t: sim.t, at: performance.now(), ...item });
+  const prev = chronicle[chronicle.length - 1];
+  const now = performance.now();
+  // the same thing again moments later (debris raining onto the Sun...) counts up on one line
+  if (prev && prev.text === item.text && !item.action && !item.replay && now - prev.at < 4000) { prev.n = (prev.n || 1) + 1; prev.at = now; }
+  else chronicle.push({ t: sim.t, at: now, ...item });
   if (chronicle.length > 300) chronicle.shift();
   if (!LOG.open) LOG.unread++;
   renderLog(true);
@@ -777,26 +781,51 @@ function toast(html, kind = 'note') {
   pushLog({ icon: '', text: html, kind });
 }
 
+// The log sits as an icon with an unread count. Something new flashes up beneath it for a few
+// seconds, then tucks away; a burst of events shows as the latest plus "+N more" rather than a
+// stream. Tap the icon (or the flash) to open the full list and scroll back through it.
+const logText = (c) => `<i class="ldot ${c.severe ? 'severe' : c.kind || ''}"></i>${String(c.text).replace(/\p{Extended_Pictographic}\uFE0F?\s*/gu, '')}${c.n > 1 ? ` <b class="lx">×${c.n}</b>` : ''}`;
 function renderLog(fresh) {
   const box = $('#log');
   const list = box.querySelector('.log-list');
   const keep = list ? list.scrollTop : 0;
-  const last = chronicle[chronicle.length - 1];
-  // a small status dot instead of an emoji; any emoji in the wording is dropped too
-  const line = (c) => `<i class="ldot ${c.severe ? 'severe' : c.kind || ''}"></i>${String(c.text).replace(/\p{Extended_Pictographic}\uFE0F?\s*/gu, '')}`;
-  const row = (c, i) => `<li class="${c.kind || ''}${c.severe ? ' severe' : ''}"><span class="ts">${stamp(c.t)}</span><span class="tx">${line(c)}</span>${c.replay ? `<button class="replay" data-r="${i}">${icon('replay')} Replay</button>` : ''}${c.action ? `<button class="replay" data-act="${i}">${c.action.label}</button>` : ''}</li>`;
+  const row = (c, i) => `<li class="${c.kind || ''}${c.severe ? ' severe' : ''}"><span class="ts">${stamp(c.t)}</span><span class="tx">${logText(c)}</span>${c.replay ? `<button class="replay" data-r="${i}">${icon('replay')} Replay</button>` : ''}${c.action ? `<button class="replay" data-act="${i}">${c.action.label}</button>` : ''}</li>`;
   box.classList.toggle('open', LOG.open);
-  const pending = !LOG.open && last?.action;
-  // a pending offer (resume last run) takes over the collapsed bar as a single tap target
-  box.innerHTML = pending
-    ? `<div class="log-offer"><button class="offer-btn" data-act="${chronicle.length - 1}">${last.action.label}</button><button class="log-head" aria-expanded="false" aria-label="Open event log"><span class="lh-chev">▾</span></button></div>`
-    : `<button class="log-head" aria-expanded="${LOG.open}"><span class="lh-last">${LOG.open || !last ? 'Event log' : line(last)}</span>${LOG.unread && !LOG.open ? `<b class="lh-n">${LOG.unread}</b>` : ''}<span class="lh-chev">${LOG.open ? '▴' : '▾'}</span></button>
-    ${LOG.open ? `<ol class="log-list">${chronicle.length ? chronicle.map(row).reverse().join('') : '<li class="muted">Nothing yet. Launch something!</li>'}</ol>` : ''}`;
-  if (LOG.open) box.querySelector('.log-list').scrollTop = keep;
-  box.querySelector('.log-head').onclick = () => { LOG.open = !LOG.open; LOG.unread = 0; renderLog(); };
+  box.innerHTML = `<button class="log-head" aria-expanded="${LOG.open}" aria-label="Event log">${icon('list')}${LOG.unread && !LOG.open ? `<b class="lh-n">${LOG.unread > 99 ? '99+' : LOG.unread}</b>` : ''}</button>
+    ${LOG.open ? `<div class="log-panel"><header>Event log<button class="log-x" aria-label="Close">✕</button></header><ol class="log-list">${chronicle.length ? chronicle.map(row).reverse().join('') : '<li class="muted">Nothing yet. Launch something!</li>'}</ol></div>` : ''}`;
+  if (LOG.open) {
+    box.querySelector('.log-list').scrollTop = keep;
+    box.querySelector('.log-x').onclick = () => { LOG.open = false; renderLog(); };
+  }
+  box.querySelector('.log-head').onclick = () => { LOG.open = !LOG.open; LOG.unread = 0; hideLogFlash(); renderLog(); };
   box.querySelectorAll('[data-r]').forEach((b) => { b.onclick = () => startReplay(chronicle[+b.dataset.r]?.replay); });
   box.querySelectorAll('[data-act]').forEach((b) => { b.onclick = () => { chronicle[+b.dataset.act]?.action?.run(); LOG.open = false; renderLog(); }; });
-  if (fresh && !LOG.open) { box.classList.remove('flash'); void box.offsetWidth; box.classList.add('flash'); }
+  if (fresh && !LOG.open) flashLog();
+}
+
+function flashLog() {
+  const last = chronicle[chronicle.length - 1];
+  if (!last || S.cinema) return;
+  let f = $('#log-flash');
+  if (!f) {
+    f = el('button', 'log-flash');
+    f.id = 'log-flash';
+    f.onclick = () => { LOG.open = true; LOG.unread = 0; hideLogFlash(); renderLog(); };
+    document.body.appendChild(f);
+  }
+  const now = performance.now();
+  const recent = chronicle.filter((c) => now - c.at < 3000).length;
+  f.innerHTML = `<span class="lf-tx">${logText(last)}</span>${recent > 1 ? `<span class="lf-more">+${recent - 1} more</span>` : ''}`;
+  f.classList.remove('gone');
+  f.classList.toggle('severe', !!last.severe);
+  $('#log').classList.remove('flash'); void $('#log').offsetWidth; $('#log').classList.add('flash');
+  clearTimeout(LOG.flashT);
+  // important things linger a little longer
+  LOG.flashT = setTimeout(hideLogFlash, last.severe || last.replay ? 4500 : 2800);
+}
+function hideLogFlash() {
+  clearTimeout(LOG.flashT);
+  $('#log-flash')?.classList.add('gone');
 }
 function openChronicle() { closeModal(); LOG.open = true; LOG.unread = 0; renderLog(); }
 
