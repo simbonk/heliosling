@@ -1627,7 +1627,7 @@ function openMissions() {
 
 // Bug reports and feature requests become GitHub issues: the form fills in a new-issue page on
 // the repo, with what the person saw plus the details we'd ask for anyway.
-const REPO = 'https://github.com/simbonk/solar-system';
+const REPO = 'https://github.com/simbonk/heliosling';
 function openFeedback() {
   sheet('Bugs & ideas', `<form class="feedback">
     <div class="seg fb-kind" role="radiogroup">
