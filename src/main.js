@@ -388,8 +388,8 @@ function freshUniverse() {
   renderInfo();
 }
 
-function resetVisuals() {
-  if (!S.replay) { snaps.length = 0; hist.length = 0; }
+function resetVisuals({ keepHistory = false } = {}) {
+  if (!S.replay && !keepHistory) { snaps.length = 0; hist.length = 0; }
   S.rewinding = null;
   document.body.classList.remove('rewinding');
   views.clear();
@@ -922,7 +922,7 @@ function endReplay() {
   cinema(false);
   sim.load(R.present);
   if (!settings.belt && sim.belt) sim.initBelt(0);
-  resetVisuals();
+  resetVisuals({ keepHistory: true }); // back in the same timeline: Rewind can still reach back past the replay
   S.speed = R.speed;
   S.selected = sim.get(R.selected) ? R.selected : null;
   rig.mode = R.mode === 'ride' ? 'follow' : R.mode;
@@ -1228,7 +1228,7 @@ function updateDock() {
   $('#speed').style.setProperty('--fill', `${(sliderFromSpeed() * 100).toFixed(1)}%`);
   $('#speed-label').textContent = speedText();
   $('#btn-reset').disabled = S.view === 'galaxy';
-  $('#btn-back').disabled = S.view === 'galaxy' || hist.length < 2;
+  $('#btn-back').disabled = S.view === 'galaxy'; // when there's no more history, a press says so rather than doing nothing
 }
 
 $('#btn-play').onclick = () => { audio.ensure(); if (aim.active) aim.cancel(); setPlaying(!isPlaying()); };
@@ -1256,6 +1256,7 @@ function rewind() {
   if (aim.active) aim.cancel();
   audio.click(0.6);
   const R = S.rewinding || (S.rewinding = { at: hist.length - 1, target: hist.length - 1, wasPlaying: S.playing, from: sim.t });
+  if (R.target === 0) return toast('That is as far back as Rewind goes (the last two minutes of play).');
   R.target = Math.max(0, R.target - REWIND_STEP);
   document.body.classList.add('rewinding');
   $('#btn-back').classList.add('on');
