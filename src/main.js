@@ -604,13 +604,22 @@ function abortReel() {
 }
 
 // back to normal play: the user's speed, the camera on whatever matters now
+// The resting view after a launch plays out or something is removed: the helix, from its home
+// angle, keeping whatever time speed the user had.
+function backToHelix() {
+  const speed = S.speed;
+  if (S.view !== 'helix') setView('helix');
+  else homeCamera('helix');
+  S.selected = null;
+  S.speed = speed;
+}
+
 function wrapUp(F) {
   S.speed = F.userSpeed;
   document.body.classList.remove('flying', 'reeling');
   $('#replaybar').hidden = true;
   controls.enabled = true;
-  const keep = [F.id, F.target].find((id) => id && sim.get(id));
-  if (keep) { S.selected = keep; setCamMode('follow'); } else { setCamMode('system'); fitDefault(); }
+  if (!S.switchingView) backToHelix();
   S.playing = true;
   updateDock();
   renderInfo();
@@ -960,6 +969,8 @@ function removeBody(b) {
   sim._accReady = false;
   pushLog({ icon: '✕', text: `${b.name} was removed` });
   select(null);
+  backToHelix();
+  updateDock();
 }
 
 // Earth's climate from total starlight: in the habitable zone, too close, or too far.
@@ -999,8 +1010,10 @@ function homeCamera(v = S.view) {
 
 function setView(v) {
   if (S.replay) endReplay();
+  S.switchingView = true; // the tab decides the camera, not the end of a launch
   if (S.flight) { const F = S.flight; S.flight = null; wrapUp(F); }
   if (S.reel) finishReels();
+  S.switchingView = false;
   if (aim.active) aim.cancel();
   S.rewinding = null;
   document.body.classList.remove('rewinding');
@@ -1157,9 +1170,8 @@ function renderAimBar() {
     let body = '';
     if (h.mode === 'place') body = `<div class="aim-msg"><b>${s.icon} ${s.name}</b> Tap anywhere in space to place it.</div>`;
     if (h.mode === 'heading') body = `
-      <div class="aim-msg"><b>Pull back &amp; let go.</b> Sideways aims, further is faster. Turn with the compass.</div>
-      <div class="aim-row"><label class="tilt">Tilt <input type="range" min="-80" max="80" step="1" id="tilt" aria-label="Tilt above or below the planets' plane"><output id="tilt-val"></output></label><button data-a="back" class="aim-back">Back</button></div>
-      <div class="aim-live"></div>`;
+      <div class="aim-msg"><b>Pull back &amp; let go.</b> Sideways aims, further is faster. Turn with the compass, tilt up or down with the lever.</div>
+      <div class="aim-row"><div class="aim-live"></div><button data-a="back" class="aim-back">Back</button></div>`;
     const back = h.mode === 'place' ? 'Cancel' : 'Back';
     const next = '';
     // the slingshot step keeps Back beside the tilt, so the panel leaves room to see the shot

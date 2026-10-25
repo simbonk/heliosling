@@ -126,6 +126,7 @@ export class Aim {
     document.body.appendChild(root);
     this.dial = { root, c };
     this.makeCompass();
+    this.makeLever();
 
     this.grab.addEventListener('pointerdown', (e) => {
       if (this.mode !== 'heading') return;
@@ -261,6 +262,57 @@ export class Aim {
     this.compass = { box, ticks: box.querySelector('.cmp-ticks'), strip };
   }
 
+  // Up/down: a lever at the side of the screen tilts the launch out of the planets' plane.
+  // Drag it up to aim above the plane, down to aim below; it snaps to flat, and a tap on the
+  // readout levels it again. While you move it the ghost path shows the tilted shot.
+  makeLever() {
+    const box = document.createElement('div');
+    box.className = 'sling-lever';
+    box.hidden = true;
+    box.innerHTML = '<span class="lv-end">▲</span><div class="lv-track"><i class="lv-zero"></i><i class="lv-fill"></i><b class="lv-thumb"></b></div><span class="lv-end">▼</span><button class="lv-val" aria-label="Level the shot">0°</button>';
+    document.body.appendChild(box);
+    const track = box.querySelector('.lv-track');
+    const MAX = 80;
+    const set = (e) => {
+      const r = track.getBoundingClientRect();
+      let deg = ((r.top + r.height / 2 - e.clientY) / (r.height / 2)) * MAX;
+      deg = THREE.MathUtils.clamp(Math.round(deg), -MAX, MAX);
+      if (Math.abs(deg) < 4) deg = 0;
+      if (deg !== Math.round(THREE.MathUtils.radToDeg(this.elev))) this.app.audio.click(1.2 + deg / 200);
+      this.keyAim = true; // show the path while tilting
+      this.setElevation(deg);
+    };
+    let id = null;
+    track.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); id = e.pointerId; track.setPointerCapture(id); box.classList.add('active'); set(e); });
+    track.addEventListener('pointermove', (e) => { if (e.pointerId === id) set(e); });
+    const up = (e) => { if (e.pointerId === id) { id = null; box.classList.remove('active'); } };
+    track.addEventListener('pointerup', up);
+    track.addEventListener('pointercancel', up);
+    box.querySelector('.lv-val').onclick = () => { this.keyAim = true; this.setElevation(0); };
+    this.lever = { box, MAX };
+  }
+
+  renderLever() {
+    const { box, MAX } = this.lever;
+    const show = this.mode === 'heading';
+    box.hidden = !show;
+    if (!show) return;
+    // midway down the gap between the compass and the wizard, on the right edge
+    const top = this.compass.box.getBoundingClientRect().bottom;
+    const bottom = document.querySelector('#aimbar')?.getBoundingClientRect().top || innerHeight;
+    box.style.top = `${(top + bottom) / 2 - box.offsetHeight / 2}px`;
+    const deg = Math.round(THREE.MathUtils.radToDeg(this.elev));
+    const key = `${deg}`;
+    if (key === this.lever.key) return;
+    this.lever.key = key;
+    const f = deg / MAX; // -1..1, up is positive
+    box.style.setProperty('--lv', `${(50 - f * 50).toFixed(1)}%`);
+    box.style.setProperty('--lv-h', `${Math.abs(f * 50).toFixed(1)}%`);
+    box.style.setProperty('--lv-top', `${(f > 0 ? 50 - f * 50 : 50).toFixed(1)}%`);
+    box.querySelector('.lv-val').textContent = `${deg > 0 ? '+' : ''}${deg}°`;
+    box.classList.toggle('tilted', deg !== 0);
+  }
+
   renderCompass() {
     const { box, ticks, strip } = this.compass;
     const show = this.mode === 'heading';
@@ -315,6 +367,7 @@ export class Aim {
     this.dialSpeed.setAttribute('x', ax);
     this.dialSpeed.setAttribute('y', ay - 10);
     this.renderCompass();
+    this.renderLever();
   }
 
   // ---------------------------------------------------------- flow
@@ -346,6 +399,7 @@ export class Aim {
     this.impactLabel.visible = false;
     this.dial.root.hidden = true;
     this.compass.box.hidden = true;
+    this.lever.box.hidden = true;
     this.app.controls.enabled = true;
     this.app.onAimChange?.();
   }

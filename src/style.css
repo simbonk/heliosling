@@ -420,3 +420,16 @@ body.cinema .dock { z-index: 16; }
 .cmp-mark.body { color: #bff0d0; background: rgba(40, 120, 80, 0.45); }
 .cmp-mark.r2 { top: 22px; }
 .cmp-mark.on { outline: 1.5px solid #ffd36b; }
+
+/* slingshot tilt lever: up/down out of the planets' plane */
+.sling-lever { position: fixed; right: 8px; z-index: 14; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 6px; border-radius: 22px; background: rgba(10, 16, 30, 0.7); border: 1px solid rgba(140, 180, 255, 0.25); backdrop-filter: blur(6px); }
+.sling-lever[hidden] { display: none; }
+.lv-end { font-size: 11px; color: #9fb4d8; }
+.lv-track { position: relative; width: 36px; height: 150px; touch-action: none; cursor: ns-resize; }
+.lv-track::before { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; width: 4px; margin-left: -2px; border-radius: 2px; background: rgba(160, 190, 255, 0.25); }
+.lv-zero { position: absolute; left: 8px; right: 8px; top: 50%; height: 2px; margin-top: -1px; background: rgba(160, 190, 255, 0.6); }
+.lv-fill { position: absolute; left: 50%; width: 4px; margin-left: -2px; top: var(--lv-top, 50%); height: var(--lv-h, 0); background: #ffd36b; border-radius: 2px; }
+.lv-thumb { position: absolute; left: 50%; top: var(--lv, 50%); width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; background: #1b2740; border: 2px solid #9fd0ff; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5); }
+.sling-lever.tilted .lv-thumb, .sling-lever.active .lv-thumb { border-color: #ffd36b; box-shadow: 0 0 8px rgba(255, 211, 107, 0.7); }
+.lv-val { font: 11px var(--mono); color: var(--text); background: none; border: 0; padding: 2px 0; min-width: 36px; }
+.aim-row .aim-live { flex: 1; }
