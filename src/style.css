@@ -426,7 +426,6 @@ body.cinema .dock { z-index: 16; }
 
 /* saved shots */
 #btn-saved { position: relative; }
-#btn-saved[data-count]:not([data-count=""])::after { content: attr(data-count); position: absolute; top: -4px; right: -4px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font: 700 10px/16px var(--mono); text-align: center; }
 .shot-list { display: flex; flex-direction: column; gap: 8px; }
 .shot-row { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.04); }
 .shot-row > div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -558,3 +557,29 @@ body.cinema .log-flash { display: none; }
 @media (min-width: 760px) { .log-flash { top: calc(var(--top) + 102px); right: 14px; } }
 /* phones: flash down the left, clear of the camera pill on the right */
 @media (max-width: 759px) { .log-flash { right: auto; left: 12px; max-width: calc(100vw - 132px); } .log-flash.gone { transform-origin: top left; } }
+
+/* saved shots: empty state */
+.shot-empty { display: flex; gap: 14px; align-items: flex-start; padding: 6px 2px; }
+.shot-empty svg { flex: none; width: 28px; height: 28px; color: var(--accent); opacity: 0.8; margin-top: 2px; }
+.shot-empty p { margin: 0; line-height: 1.5; color: var(--muted); }
+.shot-empty b { color: var(--text); }
+
+/* bugs & ideas form */
+.feedback { display: flex; flex-direction: column; gap: 14px; }
+.fb-kind { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); }
+.fb-kind label { position: relative; }
+.fb-kind input { position: absolute; opacity: 0; pointer-events: none; }
+.fb-kind span { display: block; text-align: center; padding: 9px 6px; border-radius: 9px; cursor: pointer; color: var(--muted); font-weight: 500; }
+.fb-kind input:checked + span { background: rgba(255,255,255,0.12); color: #fff; }
+.fb-kind input:focus-visible + span { outline: 2px solid var(--accent); }
+.fb-field { display: flex; flex-direction: column; gap: 6px; }
+.fb-field > span { font-size: 13px; color: var(--muted); }
+.fb-field input, .fb-field textarea { font: inherit; font-size: 16px; color: #fff; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 10px 12px; resize: vertical; }
+.fb-field input:focus, .fb-field textarea:focus { outline: none; border-color: var(--accent); }
+.fb-check { display: flex; gap: 10px; align-items: center; font-size: 14px; }
+.fb-check input { width: 18px; height: 18px; accent-color: var(--accent); }
+.feedback .muted { margin: 0; font-size: 13px; }
+.feedback button.primary { background: var(--accent); color: var(--accent-ink); border: 1px solid var(--accent); border-radius: 12px; padding: 12px; font: 700 16px var(--ui); cursor: pointer; }
+.menu-link { display: flex; align-items: center; height: 48px; padding: 0 12px; border-radius: 12px; color: var(--muted); font-size: 13px; text-decoration: none; border: 1px dashed var(--line); }
+.menu-link:hover { color: var(--text); }
+.menu-note { font-size: 13px; line-height: 1.45; margin: 0 2px 10px; }

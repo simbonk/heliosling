@@ -9,7 +9,7 @@ import { Aim, haloTex } from './aim.js';
 import { Audio } from './audio.js';
 import { makeLensPass, makeGravityGrid } from './shaders.js';
 import { MISSIONS, ACHIEVEMENTS, achievementsForEvent, describe, starsFor } from './missions.js';
-import { buildSave, downloadJSON, readFile, encodeShare, decodeShare, store } from './save.js';
+import { buildSave, downloadJSON, readFile, decodeShare, store } from './save.js';
 import { planetTexture, earthNightTexture } from './textures.js';
 import { icon, orb } from './icons.js';
 import { $, el, modal, closeModal, sheet, toast as popToast, fmtMass, fmtNum, installFastTap } from './ui.js';
@@ -112,7 +112,8 @@ driftArrow.add(driftLabel);
 driftLabel.position.set(0, 3.2, 0);
 
 // ---------------------------------------------------------------- frames
-const frame = () => (S.view === 'helix' ? 'galactic' : settings.frame);
+// the Solar view always keeps the Sun at the centre; the Helix view rides along with the galaxy
+const frame = () => (S.view === 'helix' ? 'galactic' : 'helio');
 function refBody() {
   const sun = sim.get('sun');
   if (sun) return sun;
@@ -689,7 +690,6 @@ function promptSave(F) {
         try { store.set(SHOTS_KEY, list.slice(0, MAX_SHOTS)); } catch { return toast('Could not save: storage is full', 'sticky'); }
         closeModal();
         pushLog({ icon: '💾', text: `Saved “${name}”` });
-        updateSavedBadge();
       } },
     ],
   });
@@ -700,13 +700,12 @@ function openSaved() {
   const list = savedShots();
   const fmt = (ms) => new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   const rows = list.length ? list.map((r) => `<div class="shot-row" data-id="${r.id}"><div><b>${r.name.replace(/</g, '&lt;')}</b><small>${fmt(r.at)} · ${r.meta.hitDt != null ? 'impact' : 'flight'}</small></div><button data-play="${r.id}" class="primary">▶ Watch</button><button data-del="${r.id}" aria-label="Delete ${r.name.replace(/"/g, '')}">✕</button></div>`).join('')
-    : '<p class="muted">No saved shots yet. After a launch plays out, choose <b>Save</b> to keep it here.</p>';
+    : `<div class="shot-empty">${icon('bookmark')}<p><b>Nothing saved yet.</b> Go make something cool. After every launch plays out you'll be asked whether to keep it, and anything you save lands here to rewatch.</p></div>`;
   sheet('Saved shots', `<div class="shot-list">${rows}</div>`, (box) => {
     box.querySelectorAll('[data-play]').forEach((b) => { b.onclick = () => { closeModal(); playShot(savedShots().find((r) => r.id === b.dataset.play)); }; });
     box.querySelectorAll('[data-del]').forEach((b) => { b.onclick = () => {
       store.set(SHOTS_KEY, savedShots().filter((r) => r.id !== b.dataset.del));
       b.closest('.shot-row').remove();
-      updateSavedBadge();
     }; });
   });
 }
@@ -747,12 +746,6 @@ function showResumePill(auto) {
   setTimeout(gone, 12000);
   const away = (e) => { if (!pill.contains(e.target)) { gone(); window.removeEventListener('pointerdown', away, true); } };
   setTimeout(() => window.addEventListener('pointerdown', away, true), 1500);
-}
-
-function updateSavedBadge() {
-  const n = savedShots().length;
-  const btn = $('#btn-saved');
-  if (btn) btn.dataset.count = n || '';
 }
 
 // ---------------------------------------------------------------- event log
@@ -829,7 +822,6 @@ function hideLogFlash() {
   clearTimeout(LOG.flashT);
   $('#log-flash')?.classList.add('gone');
 }
-function openChronicle() { closeModal(); LOG.open = true; LOG.unread = 0; renderLog(); }
 
 // ---------------------------------------------------------------- replays
 // A rolling buffer of light snapshots (bodies only, no belt). When two bodies collide, the
@@ -1588,14 +1580,6 @@ function resetFlow() {
   });
 }
 
-async function share(save = buildSave(sim, { view: S.view, speed: S.speed, frame: settings.frame, drift: settings.drift })) {
-  const code = await encodeShare(save);
-  const url = `${location.origin}${location.pathname}#u=${code}`;
-  try { await navigator.clipboard.writeText(url); toast('Share link copied. Anyone who opens it gets this exact universe.'); }
-  catch { prompt('Copy this link:', url); }
-  if (navigator.share && MOBILE) navigator.share({ title: 'My solar system experiment', url }).catch(() => {});
-  unlock('sharer');
-}
 
 function applySave(data) {
   loadSim(data.sim);
@@ -1641,6 +1625,45 @@ function openMissions() {
   });
 }
 
+// Bug reports and feature requests become GitHub issues: the form fills in a new-issue page on
+// the repo, with what the person saw plus the details we'd ask for anyway.
+const REPO = 'https://github.com/simbonk/solar-system';
+function openFeedback() {
+  sheet('Bugs & ideas', `<form class="feedback">
+    <div class="seg fb-kind" role="radiogroup">
+      <label><input type="radio" name="kind" value="bug" checked><span>🐞 Bug</span></label>
+      <label><input type="radio" name="kind" value="feature"><span>✨ Feature idea</span></label>
+    </div>
+    <label class="fb-field"><span>Title</span><input name="title" maxlength="120" required placeholder="Rewind skips back too far"></label>
+    <label class="fb-field"><span class="fb-what">What happened?</span><textarea name="body" rows="5" required placeholder="What you did, what you expected, what you saw"></textarea></label>
+    <label class="fb-check"><input type="checkbox" name="env" checked><span>Include device and simulation details</span></label>
+    <p class="muted">This opens a prefilled GitHub issue. You'll need a GitHub account to post it.</p>
+    <button class="primary" type="submit">Continue to GitHub</button>
+  </form>`, (box) => {
+    const f = box.querySelector('form');
+    const what = box.querySelector('.fb-what');
+    f.kind.forEach((r) => { r.onchange = () => {
+      const bug = f.kind.value === 'bug';
+      what.textContent = bug ? 'What happened?' : 'What would you like?';
+      f.title.placeholder = bug ? 'Rewind skips back too far' : 'Let me launch from the Moon';
+      f.body.placeholder = bug ? 'What you did, what you expected, what you saw' : 'The idea, and what it would let you do';
+    }; });
+    f.onsubmit = (e) => {
+      e.preventDefault();
+      const bug = f.kind.value === 'bug';
+      let body = f.body.value.trim();
+      if (f.env.checked) {
+        body += `\n\n---\n**Details**\n- Page: ${location.origin}${location.pathname}\n- Browser: ${navigator.userAgent}\n- Screen: ${innerWidth}×${innerHeight} @${devicePixelRatio}x\n- View: ${S.view}, year ${(START_YEAR + sim.t).toFixed(1)}, ${sim.alive().length} bodies, speed ${S.speed.toPrecision(2)} yr/s`;
+      }
+      const q = new URLSearchParams({ title: `${bug ? '[Bug]' : '[Idea]'} ${f.title.value.trim()}`, body, labels: bug ? 'bug' : 'enhancement' });
+      window.open(`${REPO}/issues/new?${q}`, '_blank', 'noopener');
+      closeModal();
+      toast('Thanks! Finish posting it on GitHub.');
+    };
+    f.title.focus();
+  });
+}
+
 function openTrophies() {
   sheet(`Achievements · ${S.achievements.size}/${ACHIEVEMENTS.length}`, `<div class="trophies">${ACHIEVEMENTS.map((a) => `<div class="trophy ${S.achievements.has(a.id) ? 'got' : ''}"><span>${S.achievements.has(a.id) ? a.icon : '🔒'}</span><b>${a.title}</b><small>${a.desc}</small></div>`).join('')}</div>`);
 }
@@ -1651,16 +1674,17 @@ function openMenu() {
       ${store.get('gm.autosave')?.sim?.bodies?.some((b) => b.spawned) ? `<button data-m="resume">${icon('history')} Resume last run</button>` : ''}
       <button data-m="save">Save .json</button>
       <button data-m="load">Load .json</button>
-      <button data-m="share">Copy share link</button>
-      <button data-m="new">Reset</button>
-      <button data-m="log">Event log</button>
       <button data-m="ach">Achievements · ${S.achievements.size}/${ACHIEVEMENTS.length}</button>
       <button data-m="help">How it works</button>
-      <button data-m="sound">${audio.muted ? 'Sound off' : 'Sound on'}</button>
+    </div>
+    <h4>Bugs & ideas</h4>
+    <p class="muted menu-note">Heliosling is fully open source. Found a bug or have an idea? Tell us on GitHub, or read and change the code yourself.</p>
+    <div class="menu-grid">
+      <button data-m="feedback">Report a bug or idea</button>
+      <a class="menu-link" href="${REPO}/issues" target="_blank" rel="noopener">Open issues ↗</a>
+      <a class="menu-link" href="${REPO}" target="_blank" rel="noopener">Source code ↗</a>
     </div>
     <h4>Advanced settings</h4>
-    <label class="row">Solar view frame
-      <select id="set-frame"><option value="helio">Sun-centred</option><option value="bary">Inertial (barycentre)</option></select></label>
     <label class="row">Helix drift speed <span id="drift-val"></span>
       <input type="range" id="set-drift" min="0" max="1" step="0.001"></label>
     <label class="row">Contrail length <input type="range" id="set-trail" min="0.05" max="1" step="0.01"></label>
@@ -1674,15 +1698,9 @@ function openMenu() {
     box.querySelector('[data-m=load]').onclick = loadFromFile;
     const res = box.querySelector('[data-m=resume]');
     if (res) res.onclick = () => { closeModal(); resumeLastRun(); };
-    box.querySelector('[data-m=share]').onclick = () => share();
-    box.querySelector('[data-m=new]').onclick = () => { closeModal(); resetFlow(); };
-    box.querySelector('[data-m=log]').onclick = openChronicle;
     box.querySelector('[data-m=help]').onclick = openHelp;
-    box.querySelector('[data-m=sound]').onclick = (e) => { audio.ensure(); audio.setMuted(!audio.muted); updateSound(); e.currentTarget.textContent = audio.muted ? 'Sound off' : 'Sound on'; };
+    box.querySelector('[data-m=feedback]').onclick = openFeedback;
     box.querySelector('[data-m=ach]').onclick = openTrophies;
-    const fr = box.querySelector('#set-frame');
-    fr.value = settings.frame;
-    fr.onchange = () => { settings.frame = fr.value; saveSettings(); rig.lastFocus = null; };
     const dr = box.querySelector('#set-drift'), dv = box.querySelector('#drift-val');
     const toD = (x) => 0.2 * (REAL_DRIFT / 0.2) ** x, fromD = (d) => Math.log(d / 0.2) / Math.log(REAL_DRIFT / 0.2);
     const showD = () => { dv.textContent = `${(settings.drift * KMS_PER_AUYR).toFixed(0)} km/s${settings.drift >= REAL_DRIFT * 0.98 ? ' (real)' : ' (stylised)'}`; };
@@ -1751,7 +1769,6 @@ function onboarding() {
 }
 
 $('#btn-saved').onclick = openSaved;
-updateSavedBadge();
 $('#btn-menu').onclick = openMenu;
 $('#btn-sound').onclick = () => { audio.ensure(); audio.setMuted(!audio.muted); updateSound(); };
 function updateSound() { $('#btn-sound').innerHTML = icon(audio.muted ? 'mute' : 'volume'); $('#btn-sound').setAttribute('aria-label', audio.muted ? 'Unmute' : 'Mute'); }
