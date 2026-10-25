@@ -47,11 +47,12 @@ function migrateSettings(saved) {
 }
 const saveSettings = () => store.set('sss.settings', settings);
 
+const DEFAULT_SPEED = 0.25, DEFAULT_GALAXY_SPEED = 12;
 const S = {
   view: 'solar', // switched to 'helix' at boot
   playing: true,
-  speed: 0.25, // sim years per real second
-  galaxySpeed: 12, // Myr per real second
+  speed: DEFAULT_SPEED, // sim years per real second
+  galaxySpeed: DEFAULT_GALAXY_SPEED, // Myr per real second
   galaxyPlaying: true,
   selected: null,
   slow: 1,
@@ -343,6 +344,7 @@ function launch(spec, st, shot) {
     sunDist: sunNow ? Math.hypot(b.x - sunNow.x, b.y - sunNow.y, b.z - sunNow.z) : 99,
     dist: { jupiter: jup ? Math.hypot(b.x - jup.x, b.y - jup.y, b.z - jup.z) : 99 },
   };
+  launches.push({ t: sim.t, body: { ...b } });
   S.lastShot = { before, missionData, shot, shots: S.shots };
   S.shots++;
   if (S.mission) S.mission.shots++;
@@ -372,6 +374,7 @@ function resetToShot() {
 const J2000 = Date.UTC(2000, 0, 1, 12);
 function freshUniverse() {
   abortReel();
+  forgetLaunches();
   S.zoneTold = false; S.lastZone = null;
   views.clear();
   trails.reset();
@@ -404,6 +407,7 @@ function resetVisuals({ keepHistory = false } = {}) {
 
 function loadSim(data, { keepMission = false } = {}) {
   abortReel();
+  forgetLaunches();
   if (!keepMission) endMission(true);
   sim.load(data);
   if (!settings.belt && sim.belt) sim.initBelt(0);
@@ -1286,6 +1290,8 @@ function tickRewind(dt) {
   }
   if (R.at <= R.target) {
     hist.length = R.target + 1; // the old future is gone; it gets re-run from here
+    // ...but anything you launched in it still gets launched again when time gets back there
+    S.pending = launches.filter((l) => l.t > sim.t && !sim.get(l.body.id)).sort((a, b) => a.t - b.t);
     S.rewinding = null;
     document.body.classList.remove('rewinding');
     $('#btn-back').classList.remove('on');
@@ -1293,6 +1299,27 @@ function tickRewind(dt) {
     setPlaying(true);
     renderInfo();
   }
+}
+// Every launch, kept so a rewind can replay it rather than undo it.
+const launches = [];
+function forgetLaunches() { launches.length = 0; S.pending = null; }
+
+// advance the game, re-launching anything a rewind went back past at the exact moment it first flew
+function advancePlay(span, maxSteps) {
+  const P = S.pending;
+  if (!P?.length || S.replay || S.reel) return sim.advance(span, maxSteps);
+  let done = 0;
+  while (P.length && P[0].t <= sim.t + (span - done)) {
+    const gap = P[0].t - sim.t;
+    if (gap > 0) {
+      done += sim.advance(gap, maxSteps);
+      if (sim.t < P[0].t - 1e-9) return done; // ran out of steps this frame; carry on next frame
+    }
+    const l = P.shift();
+    sim.readd(l.body);
+    pushLog({ icon: '↻', text: `${l.body.name} launches again, as before`, kind: 'note' });
+  }
+  return done + sim.advance(span - done, maxSteps);
 }
 const fmtYears = (y) => (y < 1 / 12 ? `${(y * 365.25).toFixed(0)} days` : y < 1 ? `${(y * 12).toFixed(1)} months` : `${y.toFixed(1)} years`);
 $('#speed').oninput = (e) => {
@@ -1583,7 +1610,8 @@ function resetFlow() {
   const save = buildSave(sim, { view: S.view, speed: S.speed, frame: settings.frame, drift: settings.drift });
   const kb = (JSON.stringify(save).length / 1024).toFixed(0);
   const changed = sim.bodies.some((b) => b.spawned) || chronicle.length > 0;
-  const fresh = () => { closeModal(); endMission(true); freshUniverse(); fitDefault(); setPlaying(true); };
+  // a fresh start means today's date at the starting time speed, too
+  const fresh = () => { closeModal(); endMission(true); freshUniverse(); S.speed = DEFAULT_SPEED; S.galaxySpeed = DEFAULT_GALAXY_SPEED; updateDock(); fitDefault(); setPlaying(true); };
   if (!changed) { fresh(); toast('Reset to today\'s solar system.'); return; }
   modal({
     title: 'Reset the solar system?',
@@ -1685,7 +1713,9 @@ function openFeedback() {
 // your own saved shots, then go and do better.
 function openTrickShots() {
   const rows = TRICK_SHOTS.map((r) => `<div class="shot-row trick" data-id="${r.id}"><div><b>${r.name}</b><small>${r.blurb}</small></div><button data-play="${r.id}" class="primary">▶ Watch</button></div>`).join('');
-  sheet('Trick shots', `<p class="muted menu-note">A few shots worth seeing. Each one plays out in its own universe, then you're back in yours.</p><div class="shot-list">${rows}</div>`, (box) => {
+  sheet('Trick shots', `<p class="muted menu-note">A few shots worth seeing. Each one plays out in its own universe, then you're back in yours.</p><div class="shot-list">${rows}</div>
+    <p class="muted menu-note">Made something worth featuring? Share it from your saved shots and send us the link.</p>
+    <a class="menu-link" href="${REPO}/issues/new?title=${encodeURIComponent('Trick shot: ')}&body=${encodeURIComponent('Share link:\n\nWhat happens:\n')}" target="_blank" rel="noopener">Suggest a trick shot ↗</a>`, (box) => {
     box.querySelectorAll('[data-play]').forEach((b) => { b.onclick = () => { closeModal(); playShot(TRICK_SHOTS.find((r) => r.id === b.dataset.play)); }; });
   });
 }
@@ -1706,6 +1736,7 @@ function openMenu() {
       <a class="menu-link" href="${REPO}/issues" target="_blank" rel="noopener">Open issues ↗</a>
       <a class="menu-link" href="${REPO}" target="_blank" rel="noopener">Source code ↗</a>
     </div>
+    <label class="row check menu-sound"><input type="checkbox" id="set-sound"> Sound</label>
     <h4>Advanced settings</h4>
     <label class="row">Helix drift speed <span id="drift-val"></span>
       <input type="range" id="set-drift" min="0" max="1" step="0.001"></label>
@@ -1723,6 +1754,10 @@ function openMenu() {
     box.querySelector('[data-m=tour]').onclick = () => { closeModal(); startTour(); };
     box.querySelector('[data-m=feedback]').onclick = openFeedback;
     box.querySelector('[data-m=tricks]').onclick = openTrickShots;
+    // phones have no room for the sound button in the top bar, so it lives here instead
+    const snd = box.querySelector('#set-sound');
+    snd.checked = !audio.muted;
+    snd.onchange = () => { audio.ensure(); audio.setMuted(!snd.checked); updateSound(); };
     const dr = box.querySelector('#set-drift'), dv = box.querySelector('#drift-val');
     const toD = (x) => 0.2 * (REAL_DRIFT / 0.2) ** x, fromD = (d) => Math.log(d / 0.2) / Math.log(REAL_DRIFT / 0.2);
     const showD = () => { dv.textContent = `${(settings.drift * KMS_PER_AUYR).toFixed(0)} km/s${settings.drift >= REAL_DRIFT * 0.98 ? ' (real)' : ' (stylised)'}`; };
@@ -1941,7 +1976,7 @@ function frameLoop(now) {
       S.slow += (target - S.slow) * (target < S.slow ? 0.5 : 0.04);
       const span = S.speed * dt * S.slow;
       sim.sampleDt = Math.min(0.05, Math.max(0.002, S.speed / 90));
-      dtSim = sim.advance(span, MOBILE ? 350 : 700);
+      dtSim = advancePlay(span, MOBILE ? 350 : 700);
       S.dilated = dtSim < span * 0.8;
       if (S.replay) tickReplay(now);
       else if (S.reel) tickReel(dt);

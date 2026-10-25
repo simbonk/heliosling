@@ -143,6 +143,13 @@ export class Sim {
     return b;
   }
 
+  // put back a body exactly as it was when it was launched (rewinding past a launch replays it)
+  readd(body) {
+    this.bodies.push({ ...body, alive: true });
+    this._accReady = false;
+    this.emit({ kind: 'spawn', a: body.id, name: body.name });
+  }
+
   computeAccel(list) {
     for (const b of list) { b.ax = 0; b.ay = 0; b.az = 0; }
     for (let i = 0; i < list.length; i++) {
