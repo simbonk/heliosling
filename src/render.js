@@ -503,6 +503,78 @@ export class Trails {
   }
 }
 
+// Ghost orbits: once a planet's orbit is knocked off course, a faint dashed copy of the orbit it
+// started on stays behind around the Sun, so you can see what changed. Planets that are destroyed
+// or flung out keep their ghost too. Everything is worked out from the bodies' current state, so
+// a rewind back before the disturbance fades the ghost away again.
+const GHOST_SEGMENTS = 256;
+export class Ghosts {
+  constructor(scene, sim) {
+    this.sim = sim;
+    this.group = new THREE.Group();
+    scene.add(this.group);
+    this.visible = true;
+    this.reset();
+  }
+
+  reset() {
+    for (const g of this.ghosts?.values() || []) { g.line.removeFromParent(); g.line.geometry.dispose(); g.line.material.dispose(); }
+    this.ghosts = new Map();
+  }
+
+  add(b) {
+    const o = b.orb0, e = Math.hypot(o.ex, o.ey, o.ez);
+    const h = new THREE.Vector3(o.hx, o.hy, o.hz);
+    // perihelion direction (any in-plane direction will do for a near-circle) and the one 90° on
+    const p = e > 1e-9 ? new THREE.Vector3(o.ex, o.ey, o.ez).divideScalar(e) : new THREE.Vector3(1, 0, 0).cross(h).normalize();
+    const q = h.clone().cross(p);
+    const bAxis = o.a * Math.sqrt(1 - Math.min(e, 0.999) ** 2);
+    const pos = new Float32Array((GHOST_SEGMENTS + 1) * 3);
+    for (let i = 0; i <= GHOST_SEGMENTS; i++) {
+      const E = (i / GHOST_SEGMENTS) * Math.PI * 2;
+      const x = o.a * (Math.cos(E) - e), y = bAxis * Math.sin(E);
+      pos[i * 3] = p.x * x + q.x * y; pos[i * 3 + 1] = p.y * x + q.y * y; pos[i * 3 + 2] = p.z * x + q.z * y;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const dash = (Math.PI * 2 * o.a) / 160;
+    const line = new THREE.Line(g, new THREE.LineDashedMaterial({ color: new THREE.Color(b.color), dashSize: dash, gapSize: dash * 0.9, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
+    line.computeLineDistances();
+    line.frustumCulled = false;
+    line.visible = false;
+    this.group.add(line);
+    const ghost = { line, orb0: o, shown: 0 };
+    this.ghosts.set(b.id, ghost);
+    return ghost;
+  }
+
+  // sunPos: where the Sun is drawn. change(was, body) says how far body's orbit has strayed
+  // from `was` (Infinity if it's no longer orbiting the Sun).
+  update(sunPos, change, dt) {
+    this.group.visible = this.visible && !!sunPos;
+    if (!this.group.visible) return;
+    this.group.position.copy(sunPos);
+    for (const b of this.sim.bodies) {
+      if (!b.orb0 || !b.alive) continue;
+      const g = this.ghosts.get(b.id);
+      if (g && g.orb0.a === b.orb0.a && g.orb0.ex === b.orb0.ex) continue;
+      if (g) { g.line.removeFromParent(); g.line.geometry.dispose(); g.line.material.dispose(); }
+      this.add(b);
+    }
+    const k = 1 - Math.exp(-dt * 4);
+    for (const [id, g] of this.ghosts) {
+      const b = this.sim.get(id);
+      // starts to show at a 3% change and is fully there by 8%, so the slow natural drift stays hidden
+      const d = b ? change(g.orb0, b) : Infinity;
+      const goal = THREE.MathUtils.smoothstep(d, 0.03, 0.08);
+      g.shown += (goal - g.shown) * k;
+      if (Math.abs(goal - g.shown) < 0.002) g.shown = goal;
+      g.line.material.opacity = g.shown * 0.45;
+      g.line.visible = g.shown > 0.005;
+    }
+  }
+}
+
 export class Belt {
   constructor(scene) {
     this.points = null;

@@ -33,6 +33,8 @@ export function validate(data) {
     b.name = String(b.name || 'Body').slice(0, 40);
     b.tagline = String(b.tagline || '').slice(0, 80);
     b.color = /^#[0-9a-f]{6}$/i.test(b.color) ? b.color : '#999999';
+    const o = b.orb0;
+    if (o && !(['a', 'ex', 'ey', 'ez', 'hx', 'hy', 'hz'].every((k) => typeof o[k] === 'number' && isFinite(o[k])) && o.a > 0)) delete b.orb0;
   }
   return data;
 }

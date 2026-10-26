@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import './style.css';
 import { inject } from '@vercel/analytics';
-import { Sim } from './physics.js';
+import { Sim, orbitShape, orbitChange } from './physics.js';
 import { SPAWNABLES, KMS_PER_AUYR, START_YEAR, PLANETS } from './data.js';
-import { createRenderer, makeStarfield, BodyViews, Trails, Belt, SpaceDust, Effects } from './render.js';
+import { createRenderer, makeStarfield, BodyViews, Trails, Ghosts, Belt, SpaceDust, Effects } from './render.js';
 import { GalaxyView } from './galaxy.js';
 import { Aim, haloTex } from './aim.js';
 import { Audio } from './audio.js';
@@ -34,6 +34,7 @@ const settings = Object.assign({
   bloom: true,
   labels: true,
   trails: true,
+  ghosts: true, // faint copy of each planet's original orbit once it's been disturbed
   grid: true,
   hz: false,
   reels: true, // chase + three replays after each launch
@@ -76,6 +77,7 @@ sim.scaleMode = settings.scale;
 const views = new BodyViews(scene, sim);
 const trails = new Trails(scene, sim);
 trails.length = settings.trailLength;
+const ghosts = new Ghosts(scene, sim);
 const belt = new Belt(scene);
 const dust = new SpaceDust(scene);
 const effects = new Effects(scene, { maxParticles: MOBILE ? 320 : 700 });
@@ -378,12 +380,14 @@ function freshUniverse() {
   S.zoneTold = false; S.lastZone = null;
   views.clear();
   trails.reset();
+  ghosts.reset();
   sim.initSolarSystem({ belt: 0 });
   sim.sampleDt = 0.01;
   sim.nextSample = 0;
   const years = (Date.now() - J2000) / (365.25 * 864e5);
   sim.advance(years, 1e9);
   sim.events.length = 0;
+  for (const b of sim.bodies) b.orb0 = null; // ghosts show the orbits as they are today, not in 2000
   sim.initBelt(settings.belt ? (MOBILE ? 500 : 900) : 0);
   rig.lastFocus = null;
   S.lastShot = null;
@@ -395,7 +399,7 @@ function freshUniverse() {
 }
 
 function resetVisuals({ keepHistory = false } = {}) {
-  if (!S.replay && !keepHistory) { snaps.length = 0; hist.length = 0; }
+  if (!S.replay && !keepHistory) { snaps.length = 0; hist.length = 0; ghosts.reset(); } // a different universe: its lost planets aren't ours
   S.rewinding = null;
   document.body.classList.remove('rewinding');
   views.clear();
@@ -1191,7 +1195,7 @@ function setView(v) {
   document.body.classList.remove('rewinding');
   S.view = v;
   const solar = v !== 'galaxy';
-  views.group.visible = trails.group.visible = solar;
+  views.group.visible = trails.group.visible = ghosts.group.visible = solar;
   views.group.traverse((o) => { if (o.isCSS2DObject) o.visible = solar; });
   if (belt.points) belt.points.visible = solar;
   galaxy.setVisible(!solar);
@@ -1741,6 +1745,7 @@ function openMenu() {
     <label class="row">Helix drift speed <span id="drift-val"></span>
       <input type="range" id="set-drift" min="0" max="1" step="0.001"></label>
     <label class="row">Contrail length <input type="range" id="set-trail" min="0.05" max="1" step="0.01"></label>
+    <label class="row check"><input type="checkbox" id="set-ghosts"> Ghost orbits (where disturbed planets used to go)</label>
     <label class="row check"><input type="checkbox" id="set-belt"> Asteroid belt</label>
     <label class="row check"><input type="checkbox" id="set-reels"> Follow cam and replays after each launch</label>
     <label class="row check"><input type="checkbox" id="set-slowmo"> Auto slow-mo on close calls</label>
@@ -1768,6 +1773,7 @@ function openMenu() {
     tr.oninput = () => { settings.trailLength = trails.length = +tr.value; saveSettings(); };
     const chk = (id, key, after) => { const c = box.querySelector(id); c.checked = settings[key]; c.onchange = () => { settings[key] = c.checked; saveSettings(); after?.(); }; };
     chk('#set-belt', 'belt', () => { if (settings.belt) sim.initBelt(MOBILE ? 500 : 900); else sim.initBelt(0); });
+    chk('#set-ghosts', 'ghosts');
     chk('#set-reels', 'reels');
     chk('#set-slowmo', 'slowmo');
     chk('#set-lens', 'lensing');
@@ -1992,6 +1998,9 @@ function frameLoop(now) {
     views.declutter(camera, S.selected, { w: innerWidth, h: innerHeight });
     trails.visible = settings.trails;
     trails.update(toRender, trailOffset, trailSpan);
+    const sun = sim.get('sun');
+    ghosts.visible = settings.ghosts;
+    ghosts.update(sun && toRender(sun, new THREE.Vector3()), (was, b) => orbitChange(was, orbitShape(b, sun)), dt);
     belt.update(settings.belt ? sim.belt : null, toRenderXYZ);
     const gal = frame() === 'galactic';
     const ref = refRender();
