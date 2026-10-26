@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import './style.css';
 import { inject } from '@vercel/analytics';
-import { Sim } from './physics.js';
+import { Sim, orbitShape, orbitChange } from './physics.js';
 import { SPAWNABLES, KMS_PER_AUYR, START_YEAR, PLANETS } from './data.js';
-import { createRenderer, makeStarfield, BodyViews, Trails, Belt, SpaceDust, Effects } from './render.js';
+import { createRenderer, makeStarfield, BodyViews, Trails, Ghosts, Belt, SpaceDust, Effects } from './render.js';
 import { GalaxyView } from './galaxy.js';
 import { Aim, haloTex } from './aim.js';
 import { Audio } from './audio.js';
@@ -34,6 +34,9 @@ const settings = Object.assign({
   bloom: true,
   labels: true,
   trails: true,
+  // keep the ghosts of disturbed planets' original orbits on, per view; off, they flash briefly then fade.
+  // On in the flat Solar view, where they help most; the Helix view looks cleaner without.
+  origOrbits: { solar: true, helix: false },
   grid: true,
   hz: false,
   reels: true, // chase + three replays after each launch
@@ -41,6 +44,7 @@ const settings = Object.assign({
 }, migrateSettings(store.get('sss.settings', {})));
 // v2 flipped the defaults: gravity wells on, habitable zone off
 function migrateSettings(saved) {
+  if (saved.origOrbits && typeof saved.origOrbits !== 'object') delete saved.origOrbits;
   if ((saved.v || 1) < 2) { delete saved.grid; delete saved.hz; }
   saved.v = 2;
   return saved;
@@ -76,6 +80,7 @@ sim.scaleMode = settings.scale;
 const views = new BodyViews(scene, sim);
 const trails = new Trails(scene, sim);
 trails.length = settings.trailLength;
+const ghosts = new Ghosts(scene, sim);
 const belt = new Belt(scene);
 const dust = new SpaceDust(scene);
 const effects = new Effects(scene, { maxParticles: MOBILE ? 320 : 700 });
@@ -378,12 +383,14 @@ function freshUniverse() {
   S.zoneTold = false; S.lastZone = null;
   views.clear();
   trails.reset();
+  ghosts.reset();
   sim.initSolarSystem({ belt: 0 });
   sim.sampleDt = 0.01;
   sim.nextSample = 0;
   const years = (Date.now() - J2000) / (365.25 * 864e5);
   sim.advance(years, 1e9);
   sim.events.length = 0;
+  for (const b of sim.bodies) b.orb0 = null; // ghosts show the orbits as they are today, not in 2000
   sim.initBelt(settings.belt ? (MOBILE ? 500 : 900) : 0);
   rig.lastFocus = null;
   S.lastShot = null;
@@ -395,7 +402,7 @@ function freshUniverse() {
 }
 
 function resetVisuals({ keepHistory = false } = {}) {
-  if (!S.replay && !keepHistory) { snaps.length = 0; hist.length = 0; }
+  if (!S.replay && !keepHistory) { snaps.length = 0; hist.length = 0; ghosts.reset(); } // a different universe: its lost planets aren't ours
   S.rewinding = null;
   document.body.classList.remove('rewinding');
   views.clear();
@@ -1191,7 +1198,7 @@ function setView(v) {
   document.body.classList.remove('rewinding');
   S.view = v;
   const solar = v !== 'galaxy';
-  views.group.visible = trails.group.visible = solar;
+  views.group.visible = trails.group.visible = ghosts.group.visible = solar;
   views.group.traverse((o) => { if (o.isCSS2DObject) o.visible = solar; });
   if (belt.points) belt.points.visible = solar;
   galaxy.setVisible(!solar);
@@ -1428,6 +1435,7 @@ aim.app.onAimChange = throttledAimBar;
 
 // ---------------------------------------------------------------- right rail
 const RAIL = [
+  { id: 'orig', icon: icon('ghost'), label: 'Original orbits', act: () => toggleOrigOrbits() },
   { id: 'center', pill: true, label: 'Center the view on…', act: () => openCenterPicker() },
   { id: 'fit', icon: '⤢', label: 'Fit view (press again for the whole system)', act: () => fit() },
   { id: 'layers', icon: '◫', label: 'Layers', act: () => openLayers() },
@@ -1447,8 +1455,16 @@ function buildRail() {
 }
 
 function updateRail() {
+  $('#rail [data-id=orig]')?.classList.toggle('on', !!settings.origOrbits[S.view]);
   const c = $('#rail [data-id=center] .cn');
   if (c) c.innerHTML = `<small>${rig.mode === 'ride' ? 'Riding' : 'Centred on'}</small>◎ ${centerName()} ▾`;
+}
+
+function toggleOrigOrbits() {
+  const on = (settings.origOrbits[S.view] = !settings.origOrbits[S.view]);
+  saveSettings();
+  const where = S.view === 'helix' ? 'Helix' : 'Solar';
+  toast(on ? `Original orbits on in the ${where} view: dashed lines show where knocked planets used to go.` : `Original orbits off in the ${where} view: they show briefly after a planet is knocked, then fade.`);
 }
 
 function openCenterPicker() {
@@ -1992,6 +2008,9 @@ function frameLoop(now) {
     views.declutter(camera, S.selected, { w: innerWidth, h: innerHeight });
     trails.visible = settings.trails;
     trails.update(toRender, trailOffset, trailSpan);
+    const sun = sim.get('sun');
+    ghosts.pinned = !!settings.origOrbits[S.view];
+    ghosts.update(sun && toRender(sun, new THREE.Vector3()), (was, b) => orbitChange(was, orbitShape(b, sun)), dt);
     belt.update(settings.belt ? sim.belt : null, toRenderXYZ);
     const gal = frame() === 'galactic';
     const ref = refRender();

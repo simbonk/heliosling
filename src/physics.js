@@ -31,6 +31,30 @@ export function elementsToState([a, e, I, L, varpi, Omega], mu) {
   return { x: X, y: Z, z: -Y, vx: VX, vy: VZ, vz: -VY };
 }
 
+// The full shape and orientation of b's osculating orbit around `star`: semi-major axis, the
+// eccentricity vector (points at perihelion) and the unit orbit normal. Null if unbound.
+export function orbitShape(b, star) {
+  const mu = G * (star.mass + b.mass);
+  const dx = b.x - star.x, dy = b.y - star.y, dz = b.z - star.z;
+  const vx = b.vx - star.vx, vy = b.vy - star.vy, vz = b.vz - star.vz;
+  const r = Math.hypot(dx, dy, dz);
+  const energy = (vx * vx + vy * vy + vz * vz) / 2 - mu / r;
+  if (energy >= 0) return null;
+  const hx = dy * vz - dz * vy, hy = dz * vx - dx * vz, hz = dx * vy - dy * vx, h = Math.hypot(hx, hy, hz);
+  const ex = (vy * hz - vz * hy) / mu - dx / r, ey = (vz * hx - vx * hz) / mu - dy / r, ez = (vx * hy - vy * hx) / mu - dz / r;
+  return { a: -mu / (2 * energy), ex, ey, ez, hx: hx / h, hy: hy / h, hz: hz / h };
+}
+
+// How far `now` has strayed from `was` (both from orbitShape): the largest of the relative
+// change in size, the change in the eccentricity vector, and the tilt between the planes (rad).
+export function orbitChange(was, now) {
+  if (!now) return Infinity;
+  const da = Math.abs(now.a - was.a) / was.a;
+  const de = Math.hypot(now.ex - was.ex, now.ey - was.ey, now.ez - was.ez);
+  const tilt = Math.acos(Math.min(1, now.hx * was.hx + now.hy * was.hy + now.hz * was.hz));
+  return Math.max(da, de, tilt);
+}
+
 export function makeBody(spec, state) {
   const n = spec.id && +String(spec.id).split('-').pop();
   if (n >= nextId) nextId = n + 1;
@@ -338,6 +362,7 @@ export class Sim {
       const el = this.elements(b, sun);
       if (!el) continue;
       if (b.a0 == null) { b.a0 = el.a; b.e0 = el.e; }
+      if (!b.orb0) b.orb0 = orbitShape(b, sun); // the ghost orbit drawn once this one is disturbed
       const da = Math.abs(el.a - b.a0) / b.a0;
       const de = Math.abs(el.e - b.e0);
       sum += Math.exp(-da * 6) * Math.exp(-de * 5);
@@ -439,7 +464,7 @@ export class Sim {
   }
 
   serialize({ belt = true } = {}) {
-    const keep = ['id', 'name', 'type', 'kind', 'tagline', 'mass', 'radiusKm', 'color', 'tex', 'rings', 'luminosity', 'spawned', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'escaped', 'born', 'a0', 'e0'];
+    const keep = ['id', 'name', 'type', 'kind', 'tagline', 'mass', 'radiusKm', 'color', 'tex', 'rings', 'luminosity', 'spawned', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'escaped', 'born', 'a0', 'e0', 'orb0'];
     return {
       t: this.t,
       bodies: this.alive().map((b) => Object.fromEntries(keep.map((k) => [k, b[k]]))),
@@ -476,7 +501,7 @@ export class Sim {
     this.bodies = data.bodies.map((b) => makeBody(b, b));
     for (const b of this.bodies) {
       const d = data.bodies.find((x) => x.id === b.id);
-      b.born = d?.born ?? 0; b.a0 = d?.a0; b.e0 = d?.e0; b.escaped = !!d?.escaped;
+      b.born = d?.born ?? 0; b.a0 = d?.a0; b.e0 = d?.e0; b.orb0 = d?.orb0; b.escaped = !!d?.escaped;
     }
     this.stability = null;
     this.events = data.events || [];
