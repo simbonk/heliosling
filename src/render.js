@@ -504,16 +504,18 @@ export class Trails {
 }
 
 // Ghost orbits: once a planet's orbit is knocked off course, a faint dashed copy of the orbit it
-// started on stays behind around the Sun, so you can see what changed. Planets that are destroyed
-// or flung out keep their ghost too. Everything is worked out from the bodies' current state, so
-// a rewind back before the disturbance fades the ghost away again.
+// started on shows around the Sun for a few seconds, so you can see what changed, then fades
+// (or stays, if `pinned`). Planets that are destroyed or flung out get one too. Everything is
+// worked out from the bodies' current state, so a rewind back before the disturbance clears it.
 const GHOST_SEGMENTS = 256;
+const GHOST_FLASH = 15; // seconds a fresh disturbance stays on show
 export class Ghosts {
   constructor(scene, sim) {
     this.sim = sim;
     this.group = new THREE.Group();
     scene.add(this.group);
     this.visible = true;
+    this.pinned = false;
     this.reset();
   }
 
@@ -543,7 +545,7 @@ export class Ghosts {
     line.frustumCulled = false;
     line.visible = false;
     this.group.add(line);
-    const ghost = { line, orb0: o, shown: 0 };
+    const ghost = { line, orb0: o, shown: 0, until: 0, peak: null };
     this.ghosts.set(b.id, ghost);
     return ghost;
   }
@@ -561,12 +563,16 @@ export class Ghosts {
       if (g) { g.line.removeFromParent(); g.line.geometry.dispose(); g.line.material.dispose(); }
       this.add(b);
     }
-    const k = 1 - Math.exp(-dt * 4);
+    const now = performance.now() / 1000; // wall clock, so it's 15 real seconds even on a slow frame rate
     for (const [id, g] of this.ghosts) {
       const b = this.sim.get(id);
       // starts to show at a 3% change and is fully there by 8%, so the slow natural drift stays hidden
       const d = b ? change(g.orb0, b) : Infinity;
-      const goal = THREE.MathUtils.smoothstep(d, 0.03, 0.08);
+      // a new disturbance, or a much bigger one, puts the ghost on show again
+      if (d >= 0.03 && (g.peak == null || d - g.peak > 0.05)) { g.until = now + GHOST_FLASH; g.peak = d; }
+      if (d < 0.015) g.peak = null;
+      const goal = THREE.MathUtils.smoothstep(d, 0.03, 0.08) * (this.pinned || now < g.until ? 1 : 0);
+      const k = 1 - Math.exp(-dt * (goal > g.shown ? 4 : 1.2)); // in quickly, out gently
       g.shown += (goal - g.shown) * k;
       if (Math.abs(goal - g.shown) < 0.002) g.shown = goal;
       g.line.material.opacity = g.shown * 0.45;

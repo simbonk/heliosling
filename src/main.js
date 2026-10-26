@@ -34,7 +34,9 @@ const settings = Object.assign({
   bloom: true,
   labels: true,
   trails: true,
-  ghosts: true, // faint copy of each planet's original orbit once it's been disturbed
+  // keep the ghosts of disturbed planets' original orbits on, per view; off, they flash briefly then fade.
+  // On in the flat Solar view, where they help most; the Helix view looks cleaner without.
+  origOrbits: { solar: true, helix: false },
   grid: true,
   hz: false,
   reels: true, // chase + three replays after each launch
@@ -42,6 +44,7 @@ const settings = Object.assign({
 }, migrateSettings(store.get('sss.settings', {})));
 // v2 flipped the defaults: gravity wells on, habitable zone off
 function migrateSettings(saved) {
+  if (saved.origOrbits && typeof saved.origOrbits !== 'object') delete saved.origOrbits;
   if ((saved.v || 1) < 2) { delete saved.grid; delete saved.hz; }
   saved.v = 2;
   return saved;
@@ -1432,6 +1435,7 @@ aim.app.onAimChange = throttledAimBar;
 
 // ---------------------------------------------------------------- right rail
 const RAIL = [
+  { id: 'orig', icon: icon('ghost'), label: 'Original orbits', act: () => toggleOrigOrbits() },
   { id: 'center', pill: true, label: 'Center the view on…', act: () => openCenterPicker() },
   { id: 'fit', icon: '⤢', label: 'Fit view (press again for the whole system)', act: () => fit() },
   { id: 'layers', icon: '◫', label: 'Layers', act: () => openLayers() },
@@ -1451,8 +1455,16 @@ function buildRail() {
 }
 
 function updateRail() {
+  $('#rail [data-id=orig]')?.classList.toggle('on', !!settings.origOrbits[S.view]);
   const c = $('#rail [data-id=center] .cn');
   if (c) c.innerHTML = `<small>${rig.mode === 'ride' ? 'Riding' : 'Centred on'}</small>◎ ${centerName()} ▾`;
+}
+
+function toggleOrigOrbits() {
+  const on = (settings.origOrbits[S.view] = !settings.origOrbits[S.view]);
+  saveSettings();
+  const where = S.view === 'helix' ? 'Helix' : 'Solar';
+  toast(on ? `Original orbits on in the ${where} view: dashed lines show where knocked planets used to go.` : `Original orbits off in the ${where} view: they show briefly after a planet is knocked, then fade.`);
 }
 
 function openCenterPicker() {
@@ -1745,7 +1757,6 @@ function openMenu() {
     <label class="row">Helix drift speed <span id="drift-val"></span>
       <input type="range" id="set-drift" min="0" max="1" step="0.001"></label>
     <label class="row">Contrail length <input type="range" id="set-trail" min="0.05" max="1" step="0.01"></label>
-    <label class="row check"><input type="checkbox" id="set-ghosts"> Ghost orbits (where disturbed planets used to go)</label>
     <label class="row check"><input type="checkbox" id="set-belt"> Asteroid belt</label>
     <label class="row check"><input type="checkbox" id="set-reels"> Follow cam and replays after each launch</label>
     <label class="row check"><input type="checkbox" id="set-slowmo"> Auto slow-mo on close calls</label>
@@ -1773,7 +1784,6 @@ function openMenu() {
     tr.oninput = () => { settings.trailLength = trails.length = +tr.value; saveSettings(); };
     const chk = (id, key, after) => { const c = box.querySelector(id); c.checked = settings[key]; c.onchange = () => { settings[key] = c.checked; saveSettings(); after?.(); }; };
     chk('#set-belt', 'belt', () => { if (settings.belt) sim.initBelt(MOBILE ? 500 : 900); else sim.initBelt(0); });
-    chk('#set-ghosts', 'ghosts');
     chk('#set-reels', 'reels');
     chk('#set-slowmo', 'slowmo');
     chk('#set-lens', 'lensing');
@@ -1999,7 +2009,7 @@ function frameLoop(now) {
     trails.visible = settings.trails;
     trails.update(toRender, trailOffset, trailSpan);
     const sun = sim.get('sun');
-    ghosts.visible = settings.ghosts;
+    ghosts.pinned = !!settings.origOrbits[S.view];
     ghosts.update(sun && toRender(sun, new THREE.Vector3()), (was, b) => orbitChange(was, orbitShape(b, sun)), dt);
     belt.update(settings.belt ? sim.belt : null, toRenderXYZ);
     const gal = frame() === 'galactic';
